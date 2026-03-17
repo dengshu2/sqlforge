@@ -32,6 +32,7 @@ WORKDIR /app
 RUN adduser -D appuser
 
 COPY --from=backend-builder /app/.venv /app/.venv
+COPY --from=backend-builder /app/src /app/src
 COPY --from=frontend-builder /app/dist /app/static
 
 ENV PATH="/app/.venv/bin:$PATH"
