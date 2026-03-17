@@ -82,7 +82,7 @@ body {
   font-family: var(--font-ui);
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -194,6 +194,8 @@ body {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .panel__header {
@@ -285,7 +287,8 @@ body {
 
 .editor-container {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg-primary);
 }
 
@@ -301,7 +304,7 @@ body {
 }
 
 .editor-container .cm-scroller {
-  overflow: auto;
+  overflow: auto !important;
   padding: var(--space-sm) 0;
 }
 
@@ -472,48 +475,47 @@ body {
   to { transform: rotate(360deg); }
 }
 
-
 /* ─── Analysis Panel ─────────────────────────────────────────────────────── */
 
 .analysis-panel {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 200px;
+  min-height: 80px;
+  max-height: 50vh;
   background: var(--bg-secondary);
   border-top: 1px solid var(--border);
 }
 
-.analysis-panel__toggle {
+.analysis-panel__resize {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
-  width: 100%;
-  height: var(--analysis-toggle-height);
-  padding: 0 var(--space-lg);
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-family: var(--font-ui);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: color var(--transition-fast);
+  justify-content: center;
+  height: 6px;
+  cursor: row-resize;
+  flex-shrink: 0;
+  transition: background var(--transition-fast);
 }
 
-.analysis-panel__toggle:hover {
-  color: var(--text-primary);
+.analysis-panel__resize:hover,
+.analysis-panel__resize.dragging {
+  background: var(--accent-muted);
 }
 
-.analysis-panel__chevron {
-  transition: transform var(--transition-base);
+.analysis-panel__resize-handle {
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-muted);
+  opacity: 0.3;
+  transition: opacity var(--transition-fast);
 }
 
-.analysis-panel__toggle[aria-expanded="true"] .analysis-panel__chevron {
-  transform: rotate(180deg);
-}
-
-.analysis-panel__content {
-  border-top: 1px solid var(--border-subtle);
-  max-height: 240px;
-  overflow: auto;
+.analysis-panel__resize:hover .analysis-panel__resize-handle,
+.analysis-panel__resize.dragging .analysis-panel__resize-handle {
+  opacity: 0.7;
+  background: var(--accent);
 }
 
 .analysis-panel__tabs {
@@ -521,6 +523,7 @@ body {
   gap: 0;
   border-bottom: 1px solid var(--border-subtle);
   padding: 0 var(--space-md);
+  flex-shrink: 0;
 }
 
 .analysis-tab {
@@ -545,12 +548,22 @@ body {
   border-bottom-color: var(--accent);
 }
 
+.analysis-panel__content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
 .analysis-view {
   padding: var(--space-md) var(--space-lg);
   font-family: var(--font-code);
   font-size: 0.8rem;
   line-height: 1.6;
   color: var(--text-secondary);
+  overflow: auto;
+  position: absolute;
+  inset: 0;
 }
 
 .analysis-view__empty {
@@ -869,96 +882,72 @@ body {
 .skeleton-line:nth-child(5) { width: 78%; }
 
 
-/* ─── Lineage Controls ──────────────────────────────────────────────────── */
+/* ─── Lineage Table ─────────────────────────────────────────────────────── */
 
-.lineage-controls {
-  display: flex;
-  gap: var(--space-sm);
-  padding: var(--space-sm) var(--space-lg);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.lineage-input {
-  flex: 1;
-  padding: 5px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
+.lineage-table {
+  width: 100%;
+  border-collapse: collapse;
   font-family: var(--font-code);
   font-size: 0.8rem;
-  transition: border-color var(--transition-fast);
+  line-height: 1.5;
 }
 
-.lineage-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
-.lineage-input::placeholder {
-  color: var(--text-muted);
-}
-
-.lineage-trace-btn {
-  padding: 5px 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
+.lineage-table thead th {
+  text-align: left;
+  padding: 6px var(--space-sm);
   font-family: var(--font-ui);
-  font-size: 0.75rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
 }
 
-.lineage-trace-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
+.lineage-table tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--transition-fast);
+}
+
+.lineage-table tbody tr:hover {
+  background: rgba(212, 168, 67, 0.04);
+}
+
+.lineage-table td {
+  padding: 5px var(--space-sm);
+  vertical-align: baseline;
+}
+
+.lineage-table__col {
   color: var(--accent);
+  font-weight: 500;
 }
 
-.lineage-trace-btn:active {
-  transform: scale(0.97);
+.lineage-table__expr {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
 }
 
-.lineage-trace-btn.loading {
-  pointer-events: none;
-  opacity: 0.6;
-}
-
-.lineage-results {
-  padding: var(--space-sm) var(--space-lg);
-}
-
-.lineage-list {
-  list-style: none;
-}
-
-.lineage-list__item {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-sm);
-  padding: 3px 0;
-  font-size: 0.8rem;
-}
-
-.lineage-list__expr {
+.lineage-table__table {
   color: var(--accent);
   font-family: var(--font-code);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 500;
 }
 
-.lineage-list__arrow {
+.lineage-table__dot {
+  color: var(--text-muted);
+  margin: 0 1px;
+}
+
+.lineage-table__src-col {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.lineage-table__unknown {
   color: var(--text-muted);
   font-size: 0.75rem;
-}
-
-.lineage-list__source {
-  color: var(--text-secondary);
-  font-family: var(--font-code);
-  font-size: 0.8rem;
 }
 
 
@@ -1006,6 +995,8 @@ body {
 
 @media (max-width: 700px) {
   body {
+    height: auto;
+    min-height: 100dvh;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
   }

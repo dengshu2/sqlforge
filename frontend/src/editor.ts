@@ -13,6 +13,11 @@ const forgeTheme = EditorView.theme({
   '&': {
     background: '#0f1117',
     color: '#e4e4e7',
+    height: '100%',
+    maxHeight: '100%',
+  },
+  '.cm-scroller': {
+    overflow: 'auto',
   },
   '.cm-content': {
     caretColor: '#d4a843',

@@ -56,20 +56,6 @@ class TranspileResponse(BaseModel):
     warnings: list[str] = []
 
 
-class OptimizeRequest(BaseModel):
-    sql: str = Field(..., min_length=1, description="SQL to optimize")
-    dialect: str = Field(default="", description="SQL dialect")
-    schema_def: dict[str, dict[str, str]] | None = Field(
-        default=None,
-        alias="schema",
-        description="Table schema for optimization context",
-    )
-
-
-class OptimizeResponse(BaseModel):
-    optimized: str
-    rules_applied: list[str] = []
-
 
 class ParseRequest(BaseModel):
     sql: str = Field(..., min_length=1, description="SQL to parse")
@@ -95,7 +81,6 @@ class DiffResponse(BaseModel):
 
 class LineageRequest(BaseModel):
     sql: str = Field(..., min_length=1, description="SQL to analyze")
-    column: str = Field(..., min_length=1, description="Column to trace")
     dialect: str = Field(default="", description="SQL dialect")
     schema_def: dict[str, dict[str, str]] | None = Field(
         default=None,
@@ -104,9 +89,15 @@ class LineageRequest(BaseModel):
     )
 
 
+class LineageColumnMapping(BaseModel):
+    output: str
+    expression: str
+    source_table: str | None = None
+    source_column: str | None = None
+
+
 class LineageResponse(BaseModel):
-    column: str
-    lineage: list[dict]
+    mappings: list[LineageColumnMapping]
 
 
 class ErrorResponse(BaseModel):

@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from sqlforge.routes import format, transpile, optimize, parse, diff, lineage
+from sqlforge.routes import format, transpile, parse, diff, lineage
 from sqlforge.schemas import DialectsResponse, SUPPORTED_DIALECTS
 
 STATIC_DIR = os.getenv("STATIC_DIR", "")
@@ -33,7 +33,7 @@ app.add_middleware(
 
 app.include_router(format.router, prefix="/api", tags=["format"])
 app.include_router(transpile.router, prefix="/api", tags=["transpile"])
-app.include_router(optimize.router, prefix="/api", tags=["optimize"])
+
 app.include_router(parse.router, prefix="/api", tags=["parse"])
 app.include_router(diff.router, prefix="/api", tags=["diff"])
 app.include_router(lineage.router, prefix="/api", tags=["lineage"])

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SQLForge — SQL Formatting &amp; Dialect Transpilation</title>
-  <meta name="description" content="Format, transpile, and optimize SQL across 31+ database dialects. Powered by sqlglot." />
+  <meta name="description" content="Format and transpile SQL across 31+ database dialects. Powered by sqlglot." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,6 +21,9 @@
       <span class="topbar__title">SQLForge</span>
     </div>
     <nav class="topbar__nav" aria-label="Main navigation">
+      <a href="https://github.com/dengshu2/sqlforge" class="topbar__btn" title="GitHub" aria-label="GitHub" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+      </a>
       <button id="btn-keyboard-shortcuts" class="topbar__btn" type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
       </button>
@@ -72,26 +75,21 @@
         <span>Transpile</span>
         <kbd class="action-btn__kbd">⌃⏎</kbd>
       </button>
-      <button id="btn-optimize" class="action-btn" type="button">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        <span>Optimize</span>
-        <kbd class="action-btn__kbd">⌃⇧O</kbd>
-      </button>
+
     </div>
   </div>
 
   <aside class="analysis-panel" aria-label="Analysis">
-    <button id="btn-toggle-analysis" class="analysis-panel__toggle" type="button" aria-expanded="false">
-      <svg class="analysis-panel__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-      <span>Analysis</span>
-    </button>
-    <div class="analysis-panel__content" hidden>
-      <nav class="analysis-panel__tabs" role="tablist" aria-label="Analysis tabs">
-        <button role="tab" class="analysis-tab" id="tab-ast" aria-selected="true" aria-controls="panel-ast">AST</button>
-        <button role="tab" class="analysis-tab" id="tab-lineage" aria-selected="false" aria-controls="panel-lineage">Lineage</button>
-        <button role="tab" class="analysis-tab" id="tab-diff" aria-selected="false" aria-controls="panel-diff">Diff</button>
-        <button role="tab" class="analysis-tab" id="tab-errors" aria-selected="false" aria-controls="panel-errors">Errors</button>
-      </nav>
+    <div class="analysis-panel__resize" id="analysis-resize" title="Drag to resize">
+      <div class="analysis-panel__resize-handle"></div>
+    </div>
+    <nav class="analysis-panel__tabs" role="tablist" aria-label="Analysis tabs">
+      <button role="tab" class="analysis-tab" id="tab-ast" aria-selected="true" aria-controls="panel-ast">AST</button>
+      <button role="tab" class="analysis-tab" id="tab-lineage" aria-selected="false" aria-controls="panel-lineage">Lineage</button>
+      <button role="tab" class="analysis-tab" id="tab-diff" aria-selected="false" aria-controls="panel-diff">Diff</button>
+      <button role="tab" class="analysis-tab" id="tab-errors" aria-selected="false" aria-controls="panel-errors">Errors</button>
+    </nav>
+    <div class="analysis-panel__content">
       <div role="tabpanel" class="analysis-view" id="panel-ast" aria-labelledby="tab-ast">
         <div class="analysis-view__empty">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -99,13 +97,10 @@
         </div>
       </div>
       <div role="tabpanel" class="analysis-view" id="panel-lineage" aria-labelledby="tab-lineage" hidden>
-        <div class="lineage-controls">
-          <input id="lineage-column" type="text" class="lineage-input" placeholder="Column name (e.g. total_spent)" aria-label="Column name to trace" />
-          <button id="btn-trace-lineage" class="lineage-trace-btn" type="button">Trace</button>
-        </div>
-        <div id="lineage-results" class="lineage-results">
+        <div id="lineage-results">
           <div class="analysis-view__empty">
-            <p>Enter a column name above, then press <strong>Trace</strong> to view its lineage</p>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 6-10"/></svg>
+            <p>Run <strong>Format</strong> or <strong>Transpile</strong> to trace column lineage</p>
           </div>
         </div>
       </div>
@@ -140,7 +135,7 @@
     <dl class="shortcuts-list">
       <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Enter</kbd></dt><dd>Transpile</dd></div>
       <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></dt><dd>Format</dd></div>
-      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></dt><dd>Optimize</dd></div>
+
       <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd></dt><dd>Copy output</dd></div>
     </dl>
   </dialog>

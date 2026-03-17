@@ -17,15 +17,11 @@ router = APIRouter()
 )
 async def lineage_endpoint(req: LineageRequest) -> LineageResponse:
     try:
-        lineage = lineage_sql(
+        mappings = lineage_sql(
             req.sql,
-            req.column,
             req.dialect,
             req.schema_def,
         )
-        return LineageResponse(
-            column=req.column,
-            lineage=lineage,
-        )
+        return LineageResponse(mappings=mappings)
     except Exception as e:
         raise HTTPException(status_code=422, detail=str(e))

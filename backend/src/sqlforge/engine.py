@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from sqlglot import parse_one, diff, exp, Dialect
-from sqlglot.optimizer import optimize
 
 # Cache for format-specific dialect variants that preserve original function names.
 _format_dialect_cache: dict[str, str] = {}
@@ -90,50 +89,7 @@ def transpile_sql(
     return result, warnings
 
 
-def optimize_sql(
-    sql: str,
-    dialect: str = "",
-    schema: dict | None = None,
-) -> tuple[str, list[str]]:
-    """Optimize SQL query. Returns (optimized_sql, rules_applied)."""
-    d = _dialect_or_none(dialect)
-    tree = parse_one(sql, dialect=d)
 
-    rules_applied: list[str] = []
-    kwargs: dict = {"dialect": d} if d else {}
-    if schema:
-        kwargs["schema"] = schema
-
-    try:
-        optimized = optimize(tree, **kwargs)
-        original_str = tree.sql(dialect=d)
-        optimized_str = optimized.sql(dialect=d, pretty=True)
-
-        if original_str != optimized_str:
-            rules_applied = _detect_applied_rules(tree, optimized)
-
-        return optimized_str, rules_applied
-    except Exception:
-        return tree.sql(dialect=d, pretty=True), ["optimization_skipped"]
-
-
-def _detect_applied_rules(original: exp.Expression, optimized: exp.Expression) -> list[str]:
-    """Heuristic detection of optimization rules that were applied."""
-    rules = []
-
-    orig_sql = original.sql()
-    opt_sql = optimized.sql()
-
-    if "*" in orig_sql and "*" not in opt_sql:
-        rules.append("expand_star")
-    if orig_sql.count("SELECT") > opt_sql.count("SELECT"):
-        rules.append("merge_subqueries")
-    if "1 = 1" in orig_sql or "TRUE" in orig_sql.upper():
-        rules.append("simplify_predicates")
-    if not rules:
-        rules.append("general_optimization")
-
-    return rules
 
 
 def parse_sql(sql: str, dialect: str = "") -> tuple[dict, list[str], list[str]]:
@@ -229,12 +185,15 @@ def diff_sql(
 
 def lineage_sql(
     sql: str,
-    column: str,
     dialect: str = "",
     schema: dict | None = None,
 ) -> list[dict]:
-    """Trace column lineage. Returns a list of lineage nodes."""
-    from sqlglot.lineage import lineage
+    """Trace column lineage for ALL output columns automatically.
+
+    Returns a list of mappings, one per output column:
+      {output, expression, source_table, source_column}
+    """
+    from sqlglot.lineage import lineage as trace_lineage
 
     d = _dialect_or_none(dialect)
     kwargs: dict = {}
@@ -243,24 +202,65 @@ def lineage_sql(
     if schema:
         kwargs["schema"] = schema
 
-    node = lineage(column, sql, **kwargs)
-    return _lineage_to_list(node)
+    tree = parse_one(sql, dialect=d)
+    select = tree.find(exp.Select)
+    if not select:
+        return []
 
+    output_cols: list[str] = []
+    for expr in select.expressions:
+        if isinstance(expr, exp.Alias):
+            output_cols.append(expr.alias)
+        elif isinstance(expr, exp.Column):
+            output_cols.append(expr.name)
+        else:
+            output_cols.append(expr.sql(dialect=d))
 
-def _lineage_to_list(node) -> list[dict]:
-    """Flatten lineage tree to a list."""
     result: list[dict] = []
+    for col in output_cols:
+        try:
+            node = trace_lineage(col, sql, **kwargs)
+        except Exception:
+            result.append({
+                "output": col,
+                "expression": col,
+                "source_table": None,
+                "source_column": None,
+            })
+            continue
 
-    entry = {
-        "expression": node.expression.sql() if hasattr(node, "expression") else str(node),
-    }
-    if hasattr(node, "source") and node.source:
-        entry["source"] = node.source.sql()
+        expr_sql = node.expression.sql(dialect=d) if hasattr(node, "expression") else col
+        leaves = _collect_leaves(node)
 
-    result.append(entry)
-
-    if hasattr(node, "downstream"):
-        for child in node.downstream:
-            result.extend(_lineage_to_list(child))
+        if leaves:
+            for leaf_name, leaf_table in leaves:
+                result.append({
+                    "output": col,
+                    "expression": expr_sql,
+                    "source_table": leaf_table,
+                    "source_column": leaf_name,
+                })
+        else:
+            result.append({
+                "output": col,
+                "expression": expr_sql,
+                "source_table": None,
+                "source_column": None,
+            })
 
     return result
+
+
+def _collect_leaves(node) -> list[tuple[str, str]]:
+    """Walk lineage tree to leaf nodes, returning (column_name, table_name) pairs."""
+    if not hasattr(node, "downstream") or not node.downstream:
+        table = ""
+        if hasattr(node, "expression") and node.expression:
+            table = node.expression.sql()
+        col_name = getattr(node, "name", "")
+        return [(col_name, table)]
+
+    results: list[tuple[str, str]] = []
+    for child in node.downstream:
+        results.extend(_collect_leaves(child))
+    return results

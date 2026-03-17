@@ -30,10 +30,7 @@ export interface TranspileResult {
   warnings: string[];
 }
 
-export interface OptimizeResult {
-  optimized: string;
-  rules_applied: string[];
-}
+
 
 export interface ParseResult {
   ast: ASTNode;
@@ -71,10 +68,6 @@ export function transpileSQL(
   });
 }
 
-export function optimizeSQL(sql: string, dialect: string): Promise<OptimizeResult> {
-  return post('/optimize', { sql, dialect });
-}
-
 export function parseSQL(sql: string, dialect: string): Promise<ParseResult> {
   return post('/parse', { sql, dialect });
 }
@@ -83,18 +76,23 @@ export function diffSQL(sourceSql: string, targetSql: string, dialect: string): 
   return post('/diff', { source_sql: sourceSql, target_sql: targetSql, dialect });
 }
 
+export interface LineageMapping {
+  output: string;
+  expression: string;
+  source_table: string | null;
+  source_column: string | null;
+}
+
 export interface LineageResult {
-  column: string;
-  lineage: { expression: string; source?: string }[];
+  mappings: LineageMapping[];
 }
 
 export function lineageSQL(
   sql: string,
-  column: string,
   dialect: string,
   schema?: Record<string, Record<string, string>>,
 ): Promise<LineageResult> {
-  return post('/lineage', { sql, column, dialect, schema });
+  return post('/lineage', { sql, dialect, schema });
 }
 
 export async function fetchDialects(): Promise<string[]> {

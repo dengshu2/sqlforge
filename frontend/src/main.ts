@@ -5,12 +5,12 @@ import { createEditor, type EditorInstance } from './editor';
 import {
   formatSQL,
   transpileSQL,
-  optimizeSQL,
   parseSQL,
   diffSQL,
   lineageSQL,
   fetchDialects,
   type ASTNode,
+  type LineageMapping,
 } from './api';
 
 /* ─── DOM refs ───────────────────────────────────────────────────────────── */
@@ -21,17 +21,13 @@ const sourceDialect = $<HTMLSelectElement>('#source-dialect');
 const targetDialect = $<HTMLSelectElement>('#target-dialect');
 const btnFormat     = $<HTMLButtonElement>('#btn-format');
 const btnTranspile  = $<HTMLButtonElement>('#btn-transpile');
-const btnOptimize   = $<HTMLButtonElement>('#btn-optimize');
+
 const btnCopy       = $<HTMLButtonElement>('#btn-copy');
-const btnToggle     = $<HTMLButtonElement>('#btn-toggle-analysis');
-const analysisContent = $<HTMLDivElement>('.analysis-panel__content');
 const toastContainer  = $<HTMLDivElement>('#toast-container');
 const shortcutsDialog = $<HTMLDialogElement>('#shortcuts-dialog');
 const btnShortcuts    = $<HTMLButtonElement>('#btn-keyboard-shortcuts');
 const btnCloseShort   = $<HTMLButtonElement>('#btn-close-shortcuts');
 const divider         = $<HTMLDivElement>('.divider');
-const lineageColumn   = $<HTMLInputElement>('#lineage-column');
-const btnTraceLineage = $<HTMLButtonElement>('#btn-trace-lineage');
 const lineageResults  = $<HTMLDivElement>('#lineage-results');
 const errorsContent   = $<HTMLDivElement>('#errors-content');
 const tabErrors       = $<HTMLButtonElement>('#tab-errors');
@@ -197,7 +193,10 @@ async function doFormat() {
     inputEditor.setValue(result.formatted);
     showToast('Formatted', 'success');
 
-    await loadAST(result.formatted, sourceDialect.value);
+    await Promise.all([
+      loadAST(result.formatted, sourceDialect.value),
+      loadLineage(result.formatted, sourceDialect.value),
+    ]);
   });
 }
 
@@ -224,29 +223,15 @@ async function doTranspile() {
       showToast(`Transpiled to ${DIALECT_LABELS[targetDialect.value] ?? targetDialect.value}`, 'success');
     }
 
-    await loadAST(sql, sourceDialect.value);
-    await loadDiff(sql, result.result, sourceDialect.value);
+    await Promise.all([
+      loadAST(sql, sourceDialect.value),
+      loadDiff(sql, result.result, sourceDialect.value),
+      loadLineage(sql, sourceDialect.value),
+    ]);
   });
 }
 
-async function doOptimize() {
-  await withLoading(btnOptimize, async () => {
-    const sql = inputEditor.getValue().trim();
-    if (!sql) return;
 
-    clearErrors();
-    showOutputSkeleton();
-    const result = await optimizeSQL(sql, sourceDialect.value);
-    outputEditor.setValue(result.optimized);
-
-    const ruleText = result.rules_applied.length > 0
-      ? result.rules_applied.join(', ')
-      : 'no changes';
-    showToast(`Optimized: ${ruleText}`, 'success');
-
-    await loadAST(sql, sourceDialect.value);
-  });
-}
 
 /* ─── Skeleton loader ────────────────────────────────────────────────────── */
 
@@ -299,10 +284,37 @@ async function doCopy() {
 
 /* ─── Analysis Panel ─────────────────────────────────────────────────────── */
 
-function toggleAnalysis() {
-  const expanded = btnToggle.getAttribute('aria-expanded') === 'true';
-  btnToggle.setAttribute('aria-expanded', String(!expanded));
-  analysisContent.hidden = expanded;
+function initAnalysisResize() {
+  const panel = document.querySelector<HTMLElement>('.analysis-panel')!;
+  const resizeBar = document.getElementById('analysis-resize')!;
+  let isDragging = false;
+  let startY = 0;
+  let startHeight = 0;
+
+  resizeBar.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    isDragging = true;
+    startY = e.clientY;
+    startHeight = panel.offsetHeight;
+    resizeBar.classList.add('dragging');
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const delta = startY - e.clientY;
+    const newHeight = Math.max(80, Math.min(window.innerHeight * 0.5, startHeight + delta));
+    panel.style.height = `${newHeight}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    resizeBar.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
 }
 
 function initTabs() {
@@ -341,49 +353,50 @@ async function loadDiff(sourceSql: string, targetSql: string, dialect: string) {
   }
 }
 
-async function doTraceLineage() {
-  const sql = inputEditor.getValue().trim();
-  const column = lineageColumn.value.trim();
-  if (!sql) {
-    showToast('Enter SQL first', 'error');
-    return;
-  }
-  if (!column) {
-    showToast('Enter a column name to trace', 'error');
-    return;
-  }
-
-  btnTraceLineage.classList.add('loading');
+async function loadLineage(sql: string, dialect: string) {
   try {
-    const result = await lineageSQL(sql, column, sourceDialect.value);
-    lineageResults.innerHTML = renderLineage(result.lineage);
-    showToast(`Traced lineage for '${column}'`, 'success');
+    const result = await lineageSQL(sql, dialect);
+    lineageResults.innerHTML = renderLineage(result.mappings);
   } catch (err) {
     reportError('Lineage', err);
-    showToast(err instanceof Error ? err.message : 'Lineage analysis failed', 'error');
     lineageResults.innerHTML = `<div class="analysis-view__empty"><p>Lineage analysis failed. Check the Errors tab for details.</p></div>`;
-  } finally {
-    btnTraceLineage.classList.remove('loading');
   }
 }
 
-function renderLineage(lineage: { expression: string; source?: string }[]): string {
-  if (lineage.length === 0) {
-    return '<div class="analysis-view__empty"><p>No lineage data found</p></div>';
+function renderLineage(mappings: LineageMapping[]): string {
+  if (mappings.length === 0) {
+    return '<div class="analysis-view__empty"><p>No output columns detected</p></div>';
   }
 
-  let html = '<ul class="lineage-list">';
-  for (const node of lineage) {
-    html += '<li class="lineage-list__item">';
-    html += `<code class="lineage-list__expr">${esc(node.expression)}</code>`;
-    if (node.source) {
-      html += `<span class="lineage-list__arrow">←</span>`;
-      html += `<span class="lineage-list__source">${esc(node.source)}</span>`;
-    }
-    html += '</li>';
+  let html = '<table class="lineage-table">';
+  html += '<thead><tr>';
+  html += '<th>Output</th>';
+  html += '<th>Expression</th>';
+  html += '<th>Source</th>';
+  html += '</tr></thead>';
+  html += '<tbody>';
+
+  for (const m of mappings) {
+    const source = formatSource(m.source_table, m.source_column);
+    html += '<tr>';
+    html += `<td><code class="lineage-table__col">${esc(m.output)}</code></td>`;
+    html += `<td><code class="lineage-table__expr">${esc(m.expression)}</code></td>`;
+    html += `<td>${source}</td>`;
+    html += '</tr>';
   }
-  html += '</ul>';
+
+  html += '</tbody></table>';
   return html;
+}
+
+function formatSource(table: string | null, column: string | null): string {
+  if (!table && !column) {
+    return '<span class="lineage-table__unknown">—</span>';
+  }
+  const parts: string[] = [];
+  if (table) parts.push(`<span class="lineage-table__table">${esc(table)}</span>`);
+  if (column) parts.push(`<code class="lineage-table__src-col">${esc(column)}</code>`);
+  return parts.join('<span class="lineage-table__dot">.</span>');
 }
 
 function renderASTTree(node: ASTNode): string {
@@ -510,9 +523,6 @@ function initGlobalKeys() {
       } else if (e.shiftKey && e.key === 'F') {
         e.preventDefault();
         doFormat();
-      } else if (e.shiftKey && e.key === 'O') {
-        e.preventDefault();
-        doOptimize();
       } else if (e.shiftKey && e.key === 'C') {
         e.preventDefault();
         doCopy();
@@ -539,19 +549,14 @@ async function init() {
   initEditors();
   initTabs();
   initDivider();
+  initAnalysisResize();
   initShortcuts();
   initGlobalKeys();
   initDialectChanges();
 
   btnFormat.addEventListener('click', doFormat);
   btnTranspile.addEventListener('click', doTranspile);
-  btnOptimize.addEventListener('click', doOptimize);
   btnCopy.addEventListener('click', doCopy);
-  btnToggle.addEventListener('click', toggleAnalysis);
-  btnTraceLineage.addEventListener('click', doTraceLineage);
-  lineageColumn.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') doTraceLineage();
-  });
 
   await populateDialects();
 }
