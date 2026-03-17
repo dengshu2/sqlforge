@@ -872,8 +872,21 @@ body {
 /* ─── Responsive ─────────────────────────────────────────────────────────── */
 
 @media (max-width: 700px) {
+  body {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-topbar);
+  }
+
   .workspace {
     flex-direction: column;
+    overflow: visible;
+    flex: none;
   }
 
   .divider {
@@ -892,7 +905,19 @@ body {
   }
 
   .panel {
-    min-height: 200px;
+    min-height: 180px;
+    max-height: 50vh;
+    overflow: hidden;
+  }
+
+  .editor-container {
+    max-height: calc(50vh - 40px);
+  }
+
+  .actions-bar {
+    position: sticky;
+    top: var(--topbar-height);
+    z-index: var(--z-topbar);
   }
 
   .action-btn__kbd {
