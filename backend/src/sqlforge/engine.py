@@ -42,13 +42,9 @@ def _get_format_dialect(dialect_name: str) -> str:
 
 def format_sql(sql: str, dialect: str = "", indent: int = 2) -> str:
     """Format SQL with pretty-printing, preserving original function names."""
-    d = _dialect_or_none(dialect)
-    if d:
-        fmt = _get_format_dialect(d)
-        tree = parse_one(sql, dialect=fmt)
-        return tree.sql(dialect=fmt, pretty=True, indent=indent)
-    tree = parse_one(sql)
-    return tree.sql(pretty=True, indent=indent)
+    fmt = _get_format_dialect(dialect or "")
+    tree = parse_one(sql, dialect=fmt)
+    return tree.sql(dialect=fmt, pretty=True, indent=indent)
 
 
 def transpile_sql(
