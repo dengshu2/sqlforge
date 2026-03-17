@@ -3,20 +3,52 @@
 from __future__ import annotations
 
 import sqlglot
-from sqlglot import parse_one, diff, exp
+from sqlglot import parse_one, diff, exp, Dialect
 from sqlglot.errors import ErrorLevel
 from sqlglot.optimizer import optimize
+
+# Cache for format-specific dialect variants that preserve original function names.
+_format_dialect_cache: dict[str, str] = {}
 
 
 def _dialect_or_none(d: str) -> str | None:
     return d if d else None
 
 
+def _get_format_dialect(dialect_name: str) -> str:
+    """Return a format-specific dialect name with PRESERVE_ORIGINAL_NAMES enabled.
+
+    sqlglot normalizes dialect-specific function names during parse→generate
+    (e.g. Hive's NVL becomes COALESCE). For formatting we want to keep the
+    user's original function names intact, so we create a thin dialect subclass
+    with PRESERVE_ORIGINAL_NAMES = True and cache it for reuse.
+    """
+    if dialect_name in _format_dialect_cache:
+        return _format_dialect_cache[dialect_name]
+
+    base_cls = type(Dialect.get_or_raise(dialect_name))
+
+    format_cls = type(
+        f"{base_cls.__name__}Format",
+        (base_cls,),
+        {"PRESERVE_ORIGINAL_NAMES": True},
+    )
+
+    format_name = f"{dialect_name}__format"
+    Dialect.classes[format_name] = format_cls
+    _format_dialect_cache[dialect_name] = format_name
+    return format_name
+
+
 def format_sql(sql: str, dialect: str = "", indent: int = 2) -> str:
-    """Format SQL with pretty-printing."""
+    """Format SQL with pretty-printing, preserving original function names."""
     d = _dialect_or_none(dialect)
-    tree = parse_one(sql, dialect=d)
-    return tree.sql(dialect=d, pretty=True, indent=indent)
+    if d:
+        fmt = _get_format_dialect(d)
+        tree = parse_one(sql, dialect=fmt)
+        return tree.sql(dialect=fmt, pretty=True, indent=indent)
+    tree = parse_one(sql)
+    return tree.sql(pretty=True, indent=indent)
 
 
 def transpile_sql(
