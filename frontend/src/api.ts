@@ -83,6 +83,20 @@ export function diffSQL(sourceSql: string, targetSql: string, dialect: string): 
   return post('/diff', { source_sql: sourceSql, target_sql: targetSql, dialect });
 }
 
+export interface LineageResult {
+  column: string;
+  lineage: { expression: string; source?: string }[];
+}
+
+export function lineageSQL(
+  sql: string,
+  column: string,
+  dialect: string,
+  schema?: Record<string, Record<string, string>>,
+): Promise<LineageResult> {
+  return post('/lineage', { sql, column, dialect, schema });
+}
+
 export async function fetchDialects(): Promise<string[]> {
   const res = await fetch(`${BASE}/dialects`);
   if (!res.ok) throw new Error('Failed to load dialects');

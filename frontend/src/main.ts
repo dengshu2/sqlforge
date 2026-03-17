@@ -8,6 +8,7 @@ import {
   optimizeSQL,
   parseSQL,
   diffSQL,
+  lineageSQL,
   fetchDialects,
   type ASTNode,
 } from './api';
@@ -29,6 +30,11 @@ const shortcutsDialog = $<HTMLDialogElement>('#shortcuts-dialog');
 const btnShortcuts    = $<HTMLButtonElement>('#btn-keyboard-shortcuts');
 const btnCloseShort   = $<HTMLButtonElement>('#btn-close-shortcuts');
 const divider         = $<HTMLDivElement>('.divider');
+const lineageColumn   = $<HTMLInputElement>('#lineage-column');
+const btnTraceLineage = $<HTMLButtonElement>('#btn-trace-lineage');
+const lineageResults  = $<HTMLDivElement>('#lineage-results');
+const errorsContent   = $<HTMLDivElement>('#errors-content');
+const tabErrors       = $<HTMLButtonElement>('#tab-errors');
 
 /* ─── Editors ────────────────────────────────────────────────────────────── */
 
@@ -127,6 +133,46 @@ async function populateDialects() {
   targetDialect.value = 'postgres';
 }
 
+/* ─── Error collection ────────────────────────────────────────────────────── */
+
+const collectedErrors: { time: Date; source: string; message: string }[] = [];
+
+function reportError(source: string, err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  collectedErrors.push({ time: new Date(), source, message });
+  updateErrorsPanel();
+}
+
+function clearErrors() {
+  collectedErrors.length = 0;
+  updateErrorsPanel();
+}
+
+function updateErrorsPanel() {
+  if (collectedErrors.length === 0) {
+    errorsContent.innerHTML = `
+      <div class="analysis-view__empty analysis-view__empty--ok">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <p>No errors</p>
+      </div>`;
+    tabErrors.textContent = 'Errors';
+    return;
+  }
+
+  tabErrors.textContent = `Errors (${collectedErrors.length})`;
+  let html = '<ul class="errors-list">';
+  for (const e of collectedErrors) {
+    const time = e.time.toLocaleTimeString();
+    html += `<li class="errors-list__item">`;
+    html += `<span class="errors-list__time">${esc(time)}</span>`;
+    html += `<span class="errors-list__source">${esc(e.source)}</span>`;
+    html += `<span class="errors-list__msg">${esc(e.message)}</span>`;
+    html += `</li>`;
+  }
+  html += '</ul>';
+  errorsContent.innerHTML = html;
+}
+
 /* ─── Actions ────────────────────────────────────────────────────────────── */
 
 async function withLoading(btn: HTMLButtonElement, fn: () => Promise<void>) {
@@ -134,6 +180,7 @@ async function withLoading(btn: HTMLButtonElement, fn: () => Promise<void>) {
   try {
     await fn();
   } catch (err) {
+    reportError(btn.textContent?.trim() ?? 'action', err);
     showToast(err instanceof Error ? err.message : 'An error occurred', 'error');
   } finally {
     btn.classList.remove('loading');
@@ -145,6 +192,7 @@ async function doFormat() {
     const sql = inputEditor.getValue().trim();
     if (!sql) return;
 
+    clearErrors();
     const result = await formatSQL(sql, sourceDialect.value);
     inputEditor.setValue(result.formatted);
     showToast('Formatted', 'success');
@@ -158,6 +206,7 @@ async function doTranspile() {
     const sql = inputEditor.getValue().trim();
     if (!sql) return;
 
+    clearErrors();
     showOutputSkeleton();
     const result = await transpileSQL(
       sql,
@@ -167,6 +216,9 @@ async function doTranspile() {
     outputEditor.setValue(result.result);
 
     if (result.warnings.length > 0) {
+      for (const w of result.warnings) {
+        reportError('Transpile', new Error(w));
+      }
       showToast(`Transpiled with ${result.warnings.length} warning(s)`, 'error');
     } else {
       showToast(`Transpiled to ${DIALECT_LABELS[targetDialect.value] ?? targetDialect.value}`, 'success');
@@ -182,6 +234,7 @@ async function doOptimize() {
     const sql = inputEditor.getValue().trim();
     if (!sql) return;
 
+    clearErrors();
     showOutputSkeleton();
     const result = await optimizeSQL(sql, sourceDialect.value);
     outputEditor.setValue(result.optimized);
@@ -273,8 +326,8 @@ async function loadAST(sql: string, dialect: string) {
     const result = await parseSQL(sql, dialect);
     const panel = document.getElementById('panel-ast')!;
     panel.innerHTML = renderASTTree(result.ast);
-  } catch {
-    /* silent — AST is optional */
+  } catch (err) {
+    reportError('AST', err);
   }
 }
 
@@ -283,9 +336,54 @@ async function loadDiff(sourceSql: string, targetSql: string, dialect: string) {
     const result = await diffSQL(sourceSql, targetSql, dialect);
     const panel = document.getElementById('panel-diff')!;
     panel.innerHTML = renderDiff(result.changes, result.summary);
-  } catch {
-    /* silent */
+  } catch (err) {
+    reportError('Diff', err);
   }
+}
+
+async function doTraceLineage() {
+  const sql = inputEditor.getValue().trim();
+  const column = lineageColumn.value.trim();
+  if (!sql) {
+    showToast('Enter SQL first', 'error');
+    return;
+  }
+  if (!column) {
+    showToast('Enter a column name to trace', 'error');
+    return;
+  }
+
+  btnTraceLineage.classList.add('loading');
+  try {
+    const result = await lineageSQL(sql, column, sourceDialect.value);
+    lineageResults.innerHTML = renderLineage(result.lineage);
+    showToast(`Traced lineage for '${column}'`, 'success');
+  } catch (err) {
+    reportError('Lineage', err);
+    showToast(err instanceof Error ? err.message : 'Lineage analysis failed', 'error');
+    lineageResults.innerHTML = `<div class="analysis-view__empty"><p>Lineage analysis failed. Check the Errors tab for details.</p></div>`;
+  } finally {
+    btnTraceLineage.classList.remove('loading');
+  }
+}
+
+function renderLineage(lineage: { expression: string; source?: string }[]): string {
+  if (lineage.length === 0) {
+    return '<div class="analysis-view__empty"><p>No lineage data found</p></div>';
+  }
+
+  let html = '<ul class="lineage-list">';
+  for (const node of lineage) {
+    html += '<li class="lineage-list__item">';
+    html += `<code class="lineage-list__expr">${esc(node.expression)}</code>`;
+    if (node.source) {
+      html += `<span class="lineage-list__arrow">←</span>`;
+      html += `<span class="lineage-list__source">${esc(node.source)}</span>`;
+    }
+    html += '</li>';
+  }
+  html += '</ul>';
+  return html;
 }
 
 function renderASTTree(node: ASTNode): string {
@@ -357,11 +455,15 @@ function initDivider() {
 
   let isDragging = false;
 
+  function isVerticalLayout(): boolean {
+    return getComputedStyle(workspace).flexDirection === 'column';
+  }
+
   divider.addEventListener('mousedown', (e) => {
     e.preventDefault();
     isDragging = true;
     divider.classList.add('dragging');
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = isVerticalLayout() ? 'row-resize' : 'col-resize';
     document.body.style.userSelect = 'none';
   });
 
@@ -369,8 +471,9 @@ function initDivider() {
     if (!isDragging) return;
 
     const rect = workspace.getBoundingClientRect();
-    const offset = e.clientX - rect.left;
-    const total = rect.width;
+    const vertical = isVerticalLayout();
+    const offset = vertical ? e.clientY - rect.top : e.clientX - rect.left;
+    const total = vertical ? rect.height : rect.width;
     const pct = Math.max(20, Math.min(80, (offset / total) * 100));
 
     inputPanel.style.flex = `0 0 ${pct}%`;
@@ -445,6 +548,10 @@ async function init() {
   btnOptimize.addEventListener('click', doOptimize);
   btnCopy.addEventListener('click', doCopy);
   btnToggle.addEventListener('click', toggleAnalysis);
+  btnTraceLineage.addEventListener('click', doTraceLineage);
+  lineageColumn.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doTraceLineage();
+  });
 
   await populateDialects();
 }

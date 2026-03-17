@@ -65,16 +65,17 @@
       <button id="btn-format" class="action-btn" type="button">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10H7M21 6H3M21 14H3M21 18H7"/></svg>
         <span>Format</span>
-        <kbd class="action-btn__kbd">⇧F</kbd>
+        <kbd class="action-btn__kbd">⌃⇧F</kbd>
       </button>
       <button id="btn-transpile" class="action-btn action-btn--primary" type="button">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         <span>Transpile</span>
-        <kbd class="action-btn__kbd">⏎</kbd>
+        <kbd class="action-btn__kbd">⌃⏎</kbd>
       </button>
       <button id="btn-optimize" class="action-btn" type="button">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
         <span>Optimize</span>
+        <kbd class="action-btn__kbd">⌃⇧O</kbd>
       </button>
     </div>
   </div>
@@ -98,8 +99,14 @@
         </div>
       </div>
       <div role="tabpanel" class="analysis-view" id="panel-lineage" aria-labelledby="tab-lineage" hidden>
-        <div class="analysis-view__empty">
-          <p>Enter a column name and schema to trace its lineage</p>
+        <div class="lineage-controls">
+          <input id="lineage-column" type="text" class="lineage-input" placeholder="Column name (e.g. total_spent)" aria-label="Column name to trace" />
+          <button id="btn-trace-lineage" class="lineage-trace-btn" type="button">Trace</button>
+        </div>
+        <div id="lineage-results" class="lineage-results">
+          <div class="analysis-view__empty">
+            <p>Enter a column name above, then press <strong>Trace</strong> to view its lineage</p>
+          </div>
         </div>
       </div>
       <div role="tabpanel" class="analysis-view" id="panel-diff" aria-labelledby="tab-diff" hidden>
@@ -108,9 +115,11 @@
         </div>
       </div>
       <div role="tabpanel" class="analysis-view" id="panel-errors" aria-labelledby="tab-errors" hidden>
-        <div class="analysis-view__empty analysis-view__empty--ok">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-          <p>No errors</p>
+        <div id="errors-content">
+          <div class="analysis-view__empty analysis-view__empty--ok">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <p>No errors</p>
+          </div>
         </div>
       </div>
     </div>

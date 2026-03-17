@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import sqlglot
 from sqlglot import parse_one, diff, exp, Dialect
-from sqlglot.errors import ErrorLevel
 from sqlglot.optimizer import optimize
 
 # Cache for format-specific dialect variants that preserve original function names.
@@ -54,16 +52,42 @@ def transpile_sql(
     pretty: bool = True,
     identify: bool = False,
 ) -> tuple[str, list[str]]:
-    """Transpile SQL between dialects. Returns (result, warnings)."""
-    results = sqlglot.transpile(
-        sql,
-        read=_dialect_or_none(source_dialect),
-        write=_dialect_or_none(target_dialect),
-        pretty=pretty,
-        identify=identify,
-        error_level=ErrorLevel.WARN,
-    )
-    return results[0] if results else "", []
+    """Transpile SQL between dialects. Returns (result, warnings).
+
+    Warnings are generated when dialect-specific constructs are rewritten
+    during transpilation (e.g. NVL → COALESCE, ISNULL → COALESCE).
+    """
+    import re
+
+    source_d = _dialect_or_none(source_dialect)
+    target_d = _dialect_or_none(target_dialect)
+
+    tree = parse_one(sql, dialect=source_d)
+    result = tree.sql(dialect=target_d, pretty=pretty, identify=identify)
+
+    # Detect rewritten constructs by comparing function-call names in raw text.
+    # sqlglot normalises dialect aliases (e.g. NVL → COALESCE) at parse time,
+    # so AST-level comparison cannot detect them — raw text must be compared.
+    warnings: list[str] = []
+    if target_d and source_d != target_d:
+        fn_pattern = re.compile(r"\b([A-Z_]\w*)\s*\(", re.IGNORECASE)
+        source_funcs = {m.upper() for m in fn_pattern.findall(sql)}
+        target_funcs = {m.upper() for m in fn_pattern.findall(result)}
+
+        # Ignore SQL keywords that look like functions (SELECT, FROM, etc.)
+        keywords = {"SELECT", "FROM", "WHERE", "GROUP", "ORDER", "HAVING",
+                     "LIMIT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER",
+                     "DROP", "IF", "CASE", "WHEN", "THEN", "ELSE", "END",
+                     "AND", "OR", "NOT", "IN", "EXISTS", "BETWEEN", "LIKE",
+                     "JOIN", "ON", "AS", "SET", "VALUES", "INTO", "WITH"}
+        source_funcs -= keywords
+        target_funcs -= keywords
+
+        rewritten = source_funcs - target_funcs
+        for fn in sorted(rewritten):
+            warnings.append(f"'{fn}' was rewritten for the target dialect")
+
+    return result, warnings
 
 
 def optimize_sql(
@@ -219,11 +243,8 @@ def lineage_sql(
     if schema:
         kwargs["schema"] = schema
 
-    try:
-        node = lineage(column, sql, **kwargs)
-        return _lineage_to_list(node)
-    except Exception as e:
-        return [{"source": str(e), "expression": column}]
+    node = lineage(column, sql, **kwargs)
+    return _lineage_to_list(node)
 
 
 def _lineage_to_list(node) -> list[dict]:
