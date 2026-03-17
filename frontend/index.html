@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQLForge — SQL Formatting &amp; Dialect Transpilation</title>
+  <meta name="description" content="Format, transpile, and optimize SQL across 31+ database dialects. Powered by sqlglot." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <a href="#main-content" class="skip-link">Skip to content</a>
+
+  <header class="topbar" role="banner">
+    <div class="topbar__brand">
+      <svg class="topbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 20h16" /><path d="M6 16l2-12h8l2 12" /><path d="M8 4h8" /><circle cx="12" cy="12" r="1.5" />
+      </svg>
+      <span class="topbar__title">SQLForge</span>
+    </div>
+    <nav class="topbar__nav" aria-label="Main navigation">
+      <button id="btn-keyboard-shortcuts" class="topbar__btn" type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
+      </button>
+      <a href="/api/docs" class="topbar__btn" title="API Documentation" aria-label="API Documentation" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 -2 2v16a2 2 0 0 2 2h12a2 2 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+      </a>
+    </nav>
+  </header>
+
+  <main id="main-content" class="workspace">
+    <section class="panel panel--input" aria-label="SQL Input">
+      <div class="panel__header">
+        <label for="source-dialect" class="panel__label">Source Dialect</label>
+        <select id="source-dialect" class="dialect-select">
+          <option value="">Auto Detect</option>
+        </select>
+      </div>
+      <div id="editor-input" class="editor-container"></div>
+    </section>
+
+    <div class="divider" role="separator" aria-orientation="vertical">
+      <div class="divider__handle" title="Drag to resize"></div>
+    </div>
+
+    <section class="panel panel--output" aria-label="SQL Output">
+      <div class="panel__header">
+        <label for="target-dialect" class="panel__label">Target Dialect</label>
+        <select id="target-dialect" class="dialect-select">
+          <option value="postgres">PostgreSQL</option>
+        </select>
+        <button id="btn-copy" class="panel__action-btn" type="button" title="Copy output" aria-label="Copy output">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <span class="btn-label">Copy</span>
+        </button>
+      </div>
+      <div id="editor-output" class="editor-container"></div>
+    </section>
+  </main>
+
+  <div class="actions-bar">
+    <div class="actions-bar__group">
+      <button id="btn-format" class="action-btn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10H7M21 6H3M21 14H3M21 18H7"/></svg>
+        <span>Format</span>
+        <kbd class="action-btn__kbd">⇧F</kbd>
+      </button>
+      <button id="btn-transpile" class="action-btn action-btn--primary" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <span>Transpile</span>
+        <kbd class="action-btn__kbd">⏎</kbd>
+      </button>
+      <button id="btn-optimize" class="action-btn" type="button">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <span>Optimize</span>
+      </button>
+    </div>
+  </div>
+
+  <aside class="analysis-panel" aria-label="Analysis">
+    <button id="btn-toggle-analysis" class="analysis-panel__toggle" type="button" aria-expanded="false">
+      <svg class="analysis-panel__chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+      <span>Analysis</span>
+    </button>
+    <div class="analysis-panel__content" hidden>
+      <nav class="analysis-panel__tabs" role="tablist" aria-label="Analysis tabs">
+        <button role="tab" class="analysis-tab" id="tab-ast" aria-selected="true" aria-controls="panel-ast">AST</button>
+        <button role="tab" class="analysis-tab" id="tab-lineage" aria-selected="false" aria-controls="panel-lineage">Lineage</button>
+        <button role="tab" class="analysis-tab" id="tab-diff" aria-selected="false" aria-controls="panel-diff">Diff</button>
+        <button role="tab" class="analysis-tab" id="tab-errors" aria-selected="false" aria-controls="panel-errors">Errors</button>
+      </nav>
+      <div role="tabpanel" class="analysis-view" id="panel-ast" aria-labelledby="tab-ast">
+        <div class="analysis-view__empty">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <p>Run <strong>Format</strong> or <strong>Transpile</strong> to see the AST</p>
+        </div>
+      </div>
+      <div role="tabpanel" class="analysis-view" id="panel-lineage" aria-labelledby="tab-lineage" hidden>
+        <div class="analysis-view__empty">
+          <p>Enter a column name and schema to trace its lineage</p>
+        </div>
+      </div>
+      <div role="tabpanel" class="analysis-view" id="panel-diff" aria-labelledby="tab-diff" hidden>
+        <div class="analysis-view__empty">
+          <p>Transpile first, then view the semantic diff between input and output</p>
+        </div>
+      </div>
+      <div role="tabpanel" class="analysis-view" id="panel-errors" aria-labelledby="tab-errors" hidden>
+        <div class="analysis-view__empty analysis-view__empty--ok">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <p>No errors</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <footer class="app-footer">
+    <span>Powered by <a href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener">sqlglot</a></span>
+    <span class="app-footer__dot">·</span>
+    <span>31+ SQL dialects</span>
+  </footer>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <dialog id="shortcuts-dialog" class="shortcuts-dialog">
+    <header class="shortcuts-dialog__header">
+      <h2>Keyboard Shortcuts</h2>
+      <button id="btn-close-shortcuts" class="shortcuts-dialog__close" type="button" aria-label="Close">&times;</button>
+    </header>
+    <dl class="shortcuts-list">
+      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Enter</kbd></dt><dd>Transpile</dd></div>
+      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></dt><dd>Format</dd></div>
+      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd></dt><dd>Optimize</dd></div>
+      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd></dt><dd>Copy output</dd></div>
+    </dl>
+  </dialog>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
