@@ -4,9 +4,9 @@ import pytest
 from sqlforge.engine import (
     format_sql,
     transpile_sql,
-    optimize_sql,
     parse_sql,
     diff_sql,
+    lineage_sql,
 )
 
 
@@ -53,17 +53,30 @@ class TestTranspile:
         assert "1" in result
 
 
-class TestOptimize:
-    def test_basic_optimization(self):
-        sql = "SELECT * FROM t WHERE 1 = 1 AND x > 5"
-        result, rules = optimize_sql(sql)
-        assert "x > 5" in result or "x" in result
+class TestLineage:
+    def test_basic_lineage(self):
+        sql = "SELECT u.id, u.name FROM users u"
+        mappings = lineage_sql(sql)
+        assert len(mappings) == 2
+        outputs = [m["output"] for m in mappings]
+        assert "id" in outputs
+        assert "name" in outputs
 
-    def test_with_schema(self):
-        sql = "SELECT * FROM users WHERE id = 1"
-        schema = {"users": {"id": "INT", "name": "VARCHAR"}}
-        result, _ = optimize_sql(sql, schema=schema)
-        assert result
+    def test_cte_traversal(self):
+        sql = """WITH active AS (
+            SELECT id, name FROM users WHERE status = 'active'
+        ) SELECT id FROM active"""
+        mappings = lineage_sql(sql)
+        assert len(mappings) >= 1
+        assert mappings[0]["source_table"] is not None
+        assert "users" in mappings[0]["source_table"]
+
+    def test_multi_source(self):
+        sql = "SELECT u.id, o.amount FROM users u JOIN orders o ON u.id = o.user_id"
+        mappings = lineage_sql(sql)
+        tables = {m["source_table"] for m in mappings if m["source_table"]}
+        assert any("users" in t for t in tables)
+        assert any("orders" in t for t in tables)
 
 
 class TestParse:
