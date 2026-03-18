@@ -13,12 +13,203 @@ import {
   type LineageMapping,
 } from './api';
 
+/* ─── Custom Select Component ────────────────────────────────────────────── */
+
+interface SelectOption { value: string; label: string }
+
+class CustomSelect {
+  readonly el: HTMLDivElement;
+  private _value = '';
+  private _options: SelectOption[] = [];
+  private _filtered: SelectOption[] = [];
+  private _open = false;
+  private _hlIdx = -1;
+  private _handlers: (() => void)[] = [];
+  private trigger: HTMLButtonElement;
+  private labelEl: HTMLSpanElement;
+  private dropdown: HTMLDivElement;
+  private searchInput: HTMLInputElement;
+  private listEl: HTMLDivElement;
+
+  constructor(anchor: HTMLSelectElement) {
+    this._value = anchor.value;
+    const initLabel = anchor.options[anchor.selectedIndex]?.textContent ?? anchor.value;
+
+    this.el = document.createElement('div');
+    this.el.className = 'custom-select';
+
+    this.trigger = document.createElement('button');
+    this.trigger.type = 'button';
+    this.trigger.className = 'custom-select__trigger';
+    this.trigger.setAttribute('aria-haspopup', 'listbox');
+    this.trigger.setAttribute('aria-expanded', 'false');
+
+    this.labelEl = document.createElement('span');
+    this.labelEl.className = 'custom-select__label';
+    this.labelEl.textContent = initLabel;
+
+    const arrow = document.createElement('span');
+    arrow.className = 'custom-select__arrow';
+    arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+    this.trigger.append(this.labelEl, arrow);
+
+    this.dropdown = document.createElement('div');
+    this.dropdown.className = 'custom-select__dropdown';
+    this.dropdown.setAttribute('role', 'listbox');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'custom-select__search-wrap';
+    const ico = document.createElement('span');
+    ico.className = 'custom-select__search-icon';
+    ico.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>';
+    this.searchInput = document.createElement('input');
+    this.searchInput.type = 'text';
+    this.searchInput.className = 'custom-select__search';
+    this.searchInput.placeholder = 'Search\u2026';
+    this.searchInput.autocomplete = 'off';
+    this.searchInput.spellcheck = false;
+    wrap.append(ico, this.searchInput);
+
+    this.listEl = document.createElement('div');
+    this.listEl.className = 'custom-select__list';
+    this.dropdown.append(wrap, this.listEl);
+    this.el.append(this.trigger, this.dropdown);
+
+    anchor.parentNode!.insertBefore(this.el, anchor);
+    anchor.style.display = 'none';
+
+    this.trigger.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
+    this.searchInput.addEventListener('input', () => this.filter());
+    this.searchInput.addEventListener('keydown', (e) => this.onKey(e));
+    document.addEventListener('mousedown', (e) => {
+      if (this._open && !this.el.contains(e.target as Node)) this.close();
+    });
+    this.el.addEventListener('focusout', () => {
+      requestAnimationFrame(() => {
+        if (this._open && !this.el.contains(document.activeElement)) this.close();
+      });
+    });
+    window.addEventListener('resize', () => { if (this._open) this.close(); });
+  }
+
+  get value() { return this._value; }
+  set value(v: string) {
+    this._value = v;
+    const o = this._options.find(o => o.value === v);
+    this.labelEl.textContent = o?.label ?? (v || 'Select\u2026');
+  }
+
+  addEventListener(_t: string, fn: () => void) { if (_t === 'change') this._handlers.push(fn); }
+
+  setOptions(opts: SelectOption[]) {
+    this._options = opts;
+    this._filtered = opts;
+    this.renderList();
+    const cur = this._options.find(o => o.value === this._value);
+    if (cur) this.labelEl.textContent = cur.label;
+  }
+
+  private toggle() { this._open ? this.close() : this.open(); }
+
+  private open() {
+    this._open = true;
+    this.el.classList.add('custom-select--open');
+    this.trigger.setAttribute('aria-expanded', 'true');
+    this.searchInput.value = '';
+    this._filtered = this._options;
+    this.renderList();
+    this.positionDropdown();
+    this._hlIdx = this._filtered.findIndex(o => o.value === this._value);
+    this.applyHighlight();
+    requestAnimationFrame(() => this.searchInput.focus());
+  }
+
+  private close() {
+    if (!this._open) return;
+    this._open = false;
+    this.el.classList.remove('custom-select--open');
+    this.trigger.setAttribute('aria-expanded', 'false');
+    this._hlIdx = -1;
+  }
+
+  private pick(value: string) {
+    const prev = this._value;
+    this._value = value;
+    const o = this._options.find(o => o.value === value);
+    this.labelEl.textContent = o?.label ?? value;
+    this.close();
+    if (prev !== value) for (const fn of this._handlers) fn();
+  }
+
+  private filter() {
+    const q = this.searchInput.value.toLowerCase().trim();
+    this._filtered = q
+      ? this._options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
+      : this._options;
+    this._hlIdx = this._filtered.length > 0 ? 0 : -1;
+    this.renderList();
+    this.applyHighlight();
+  }
+
+  private onKey(e: KeyboardEvent) {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (this._hlIdx < this._filtered.length - 1) { this._hlIdx++; this.applyHighlight(); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (this._hlIdx > 0) { this._hlIdx--; this.applyHighlight(); } }
+    else if (e.key === 'Enter') { e.preventDefault(); if (this._hlIdx >= 0) this.pick(this._filtered[this._hlIdx].value); }
+    else if (e.key === 'Escape') { e.preventDefault(); this.close(); this.trigger.focus(); }
+  }
+
+  private renderList() {
+    this.listEl.innerHTML = '';
+    if (this._filtered.length === 0) {
+      this.listEl.innerHTML = '<div class="custom-select__empty">No matches</div>';
+      return;
+    }
+    for (let i = 0; i < this._filtered.length; i++) {
+      const opt = this._filtered[i];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'custom-select__option';
+      if (opt.value === this._value) btn.classList.add('custom-select__option--selected');
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', String(opt.value === this._value));
+      btn.textContent = opt.label;
+      btn.addEventListener('click', (e) => { e.stopPropagation(); this.pick(opt.value); });
+      btn.addEventListener('mouseenter', () => { this._hlIdx = i; this.applyHighlight(); });
+      this.listEl.appendChild(btn);
+    }
+  }
+
+  private applyHighlight() {
+    const items = this.listEl.querySelectorAll<HTMLButtonElement>('.custom-select__option');
+    items.forEach((el, idx) => el.classList.toggle('custom-select__option--highlighted', idx === this._hlIdx));
+    if (this._hlIdx >= 0 && items[this._hlIdx]) items[this._hlIdx].scrollIntoView({ block: 'nearest' });
+  }
+
+  private positionDropdown() {
+    const rect = this.trigger.getBoundingClientRect();
+    const maxH = 320, gap = 4;
+    const below = window.innerHeight - rect.bottom - gap;
+    const above = rect.top - gap;
+    this.dropdown.style.top = '';
+    this.dropdown.style.bottom = '';
+    if (below >= maxH || below >= above) {
+      this.dropdown.style.top = `${rect.bottom + gap}px`;
+      this.dropdown.classList.remove('custom-select__dropdown--above');
+    } else {
+      this.dropdown.style.bottom = `${window.innerHeight - rect.top + gap}px`;
+      this.dropdown.classList.add('custom-select__dropdown--above');
+    }
+    this.dropdown.style.left = `${rect.left}px`;
+    this.dropdown.style.minWidth = `${Math.max(rect.width, 180)}px`;
+  }
+}
+
 /* ─── DOM refs ───────────────────────────────────────────────────────────── */
 
 const $  = <T extends HTMLElement>(s: string): T => document.querySelector(s) as T;
 
-const sourceDialect = $<HTMLSelectElement>('#source-dialect');
-const targetDialect = $<HTMLSelectElement>('#target-dialect');
+let sourceDialect: CustomSelect;
+let targetDialect: CustomSelect;
 const btnFormat     = $<HTMLButtonElement>('#btn-format');
 const btnTranspile  = $<HTMLButtonElement>('#btn-transpile');
 
@@ -101,31 +292,10 @@ async function populateDialects() {
     dialects = Object.keys(DIALECT_LABELS);
   }
 
-  const buildOptions = (select: HTMLSelectElement, addAutoDetect: boolean) => {
-    const currentValue = select.value;
-    select.innerHTML = '';
+  const mapped: SelectOption[] = dialects.map(d => ({ value: d, label: DIALECT_LABELS[d] ?? d }));
 
-    if (addAutoDetect) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = 'Auto Detect';
-      select.appendChild(opt);
-    }
-
-    for (const d of dialects) {
-      const opt = document.createElement('option');
-      opt.value = d;
-      opt.textContent = DIALECT_LABELS[d] ?? d;
-      select.appendChild(opt);
-    }
-
-    if (currentValue && dialects.includes(currentValue)) {
-      select.value = currentValue;
-    }
-  };
-
-  buildOptions(sourceDialect, true);
-  buildOptions(targetDialect, false);
+  sourceDialect.setOptions([{ value: '', label: 'Auto Detect' }, ...mapped]);
+  targetDialect.setOptions(mapped);
   targetDialect.value = 'postgres';
 }
 
@@ -546,6 +716,9 @@ function initDialectChanges() {
 /* ─── Init ───────────────────────────────────────────────────────────────── */
 
 async function init() {
+  sourceDialect = new CustomSelect($<HTMLSelectElement>('#source-dialect'));
+  targetDialect = new CustomSelect($<HTMLSelectElement>('#target-dialect'));
+
   initEditors();
   initTabs();
   initDivider();
