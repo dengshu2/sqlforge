@@ -8,6 +8,8 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --prefer-offline
 
 COPY frontend/ .
+
+ARG VITE_UMAMI_WEBSITE_ID
 RUN npm run build
 
 # ── Stage 2: Build Python backend ────────────────────────────────────────────

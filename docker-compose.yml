@@ -1,6 +1,9 @@
 services:
   sqlforge:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_UMAMI_WEBSITE_ID: ${VITE_UMAMI_WEBSITE_ID}
     container_name: sqlforge
     restart: unless-stopped
     ports:
