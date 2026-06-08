@@ -14,7 +14,7 @@ services:
       - CORS_ORIGINS=https://sqlforge.dengshu.ovh
       - TZ=Asia/Shanghai
     networks:
-      - npm-network
+      - proxy-network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 30s
@@ -23,5 +23,5 @@ services:
       retries: 3
 
 networks:
-  npm-network:
+  proxy-network:
     external: true

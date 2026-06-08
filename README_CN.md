@@ -55,7 +55,7 @@ docker compose build
 docker compose up -d
 ```
 
-容器监听 `127.0.0.1:7082`，通过反向代理（如 Nginx Proxy Manager）将域名指向该端口即可。
+容器监听 `127.0.0.1:7082`，通过 Caddy 将域名指向该端口即可。
 
 ## 技术栈
 
