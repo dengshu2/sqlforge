@@ -54,12 +54,16 @@ if STATIC_DIR:
     if static_path.is_dir():
         app.mount("/assets", StaticFiles(directory=static_path / "assets"), name="assets")
 
+        static_root = static_path.resolve()
+
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
-            file_path = static_path / full_path
-            if file_path.is_file():
+            # Resolve first: "../" in the path must not reach files outside
+            # the built frontend.
+            file_path = (static_root / full_path).resolve()
+            if file_path.is_relative_to(static_root) and file_path.is_file():
                 return FileResponse(file_path)
-            return FileResponse(static_path / "index.html")
+            return FileResponse(static_root / "index.html")
 
 
 def run():
