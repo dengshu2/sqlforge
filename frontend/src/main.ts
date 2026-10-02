@@ -1,737 +1,451 @@
-/** SQLForge — main application entry point. */
+import './quiet.css';
+import './app.css';
 
-import './style.css';
-import { createEditor, type EditorInstance } from './editor';
-import {
-  formatSQL,
-  transpileSQL,
-  parseSQL,
-  diffSQL,
-  lineageSQL,
-  fetchDialects,
-  type ASTNode,
-  type LineageMapping,
-} from './api';
+import { emptyAnalysis, renderTab, summary, type Tab } from './analysis';
+import { type Analysis, ApiError, type TranspileResult, analyzeSQL, formatSQL, transpileSQL } from './api';
+import { groups, label } from './dialects';
+import { type Draft, MAX_SQL, loadDraft, packDraft, saveDraft, sharedIn, unpackDraft } from './draft';
+import { createEditor } from './editor';
+import { describeError } from './messages';
+import { $, coarse, debounce, esc, isMac, toast } from './ui';
 
-/* ─── Custom Select Component ────────────────────────────────────────────── */
-
-interface SelectOption { value: string; label: string }
-
-class CustomSelect {
-  readonly el: HTMLDivElement;
-  private _value = '';
-  private _options: SelectOption[] = [];
-  private _filtered: SelectOption[] = [];
-  private _open = false;
-  private _hlIdx = -1;
-  private _handlers: (() => void)[] = [];
-  private trigger: HTMLButtonElement;
-  private labelEl: HTMLSpanElement;
-  private dropdown: HTMLDivElement;
-  private searchInput: HTMLInputElement;
-  private listEl: HTMLDivElement;
-
-  constructor(anchor: HTMLSelectElement) {
-    this._value = anchor.value;
-    const initLabel = anchor.options[anchor.selectedIndex]?.textContent ?? anchor.value;
-
-    this.el = document.createElement('div');
-    this.el.className = 'custom-select';
-
-    this.trigger = document.createElement('button');
-    this.trigger.type = 'button';
-    this.trigger.className = 'custom-select__trigger';
-    this.trigger.setAttribute('aria-haspopup', 'listbox');
-    this.trigger.setAttribute('aria-expanded', 'false');
-
-    this.labelEl = document.createElement('span');
-    this.labelEl.className = 'custom-select__label';
-    this.labelEl.textContent = initLabel;
-
-    const arrow = document.createElement('span');
-    arrow.className = 'custom-select__arrow';
-    arrow.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-    this.trigger.append(this.labelEl, arrow);
-
-    this.dropdown = document.createElement('div');
-    this.dropdown.className = 'custom-select__dropdown';
-    this.dropdown.setAttribute('role', 'listbox');
-
-    const wrap = document.createElement('div');
-    wrap.className = 'custom-select__search-wrap';
-    const ico = document.createElement('span');
-    ico.className = 'custom-select__search-icon';
-    ico.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>';
-    this.searchInput = document.createElement('input');
-    this.searchInput.type = 'text';
-    this.searchInput.className = 'custom-select__search';
-    this.searchInput.placeholder = 'Search\u2026';
-    this.searchInput.autocomplete = 'off';
-    this.searchInput.spellcheck = false;
-    wrap.append(ico, this.searchInput);
-
-    this.listEl = document.createElement('div');
-    this.listEl.className = 'custom-select__list';
-    this.dropdown.append(wrap, this.listEl);
-    this.el.append(this.trigger, this.dropdown);
-
-    anchor.parentNode!.insertBefore(this.el, anchor);
-    anchor.style.display = 'none';
-
-    this.trigger.addEventListener('click', (e) => { e.stopPropagation(); this.toggle(); });
-    this.searchInput.addEventListener('input', () => this.filter());
-    this.searchInput.addEventListener('keydown', (e) => this.onKey(e));
-    document.addEventListener('mousedown', (e) => {
-      if (this._open && !this.el.contains(e.target as Node)) this.close();
-    });
-    this.el.addEventListener('focusout', () => {
-      requestAnimationFrame(() => {
-        if (this._open && !this.el.contains(document.activeElement)) this.close();
-      });
-    });
-    window.addEventListener('resize', () => { if (this._open) this.close(); });
-  }
-
-  get value() { return this._value; }
-  set value(v: string) {
-    this._value = v;
-    const o = this._options.find(o => o.value === v);
-    this.labelEl.textContent = o?.label ?? (v || 'Select\u2026');
-  }
-
-  addEventListener(_t: string, fn: () => void) { if (_t === 'change') this._handlers.push(fn); }
-
-  setOptions(opts: SelectOption[]) {
-    this._options = opts;
-    this._filtered = opts;
-    this.renderList();
-    const cur = this._options.find(o => o.value === this._value);
-    if (cur) this.labelEl.textContent = cur.label;
-  }
-
-  private toggle() { this._open ? this.close() : this.open(); }
-
-  private open() {
-    this._open = true;
-    this.el.classList.add('custom-select--open');
-    this.trigger.setAttribute('aria-expanded', 'true');
-    this.searchInput.value = '';
-    this._filtered = this._options;
-    this.renderList();
-    this.positionDropdown();
-    this._hlIdx = this._filtered.findIndex(o => o.value === this._value);
-    this.applyHighlight();
-    requestAnimationFrame(() => this.searchInput.focus());
-  }
-
-  private close() {
-    if (!this._open) return;
-    this._open = false;
-    this.el.classList.remove('custom-select--open');
-    this.trigger.setAttribute('aria-expanded', 'false');
-    this._hlIdx = -1;
-  }
-
-  private pick(value: string) {
-    const prev = this._value;
-    this._value = value;
-    const o = this._options.find(o => o.value === value);
-    this.labelEl.textContent = o?.label ?? value;
-    this.close();
-    if (prev !== value) for (const fn of this._handlers) fn();
-  }
-
-  private filter() {
-    const q = this.searchInput.value.toLowerCase().trim();
-    this._filtered = q
-      ? this._options.filter(o => o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q))
-      : this._options;
-    this._hlIdx = this._filtered.length > 0 ? 0 : -1;
-    this.renderList();
-    this.applyHighlight();
-  }
-
-  private onKey(e: KeyboardEvent) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); if (this._hlIdx < this._filtered.length - 1) { this._hlIdx++; this.applyHighlight(); } }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); if (this._hlIdx > 0) { this._hlIdx--; this.applyHighlight(); } }
-    else if (e.key === 'Enter') { e.preventDefault(); if (this._hlIdx >= 0) this.pick(this._filtered[this._hlIdx].value); }
-    else if (e.key === 'Escape') { e.preventDefault(); this.close(); this.trigger.focus(); }
-  }
-
-  private renderList() {
-    this.listEl.innerHTML = '';
-    if (this._filtered.length === 0) {
-      this.listEl.innerHTML = '<div class="custom-select__empty">No matches</div>';
-      return;
-    }
-    for (let i = 0; i < this._filtered.length; i++) {
-      const opt = this._filtered[i];
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'custom-select__option';
-      if (opt.value === this._value) btn.classList.add('custom-select__option--selected');
-      btn.setAttribute('role', 'option');
-      btn.setAttribute('aria-selected', String(opt.value === this._value));
-      btn.textContent = opt.label;
-      btn.addEventListener('click', (e) => { e.stopPropagation(); this.pick(opt.value); });
-      btn.addEventListener('mouseenter', () => { this._hlIdx = i; this.applyHighlight(); });
-      this.listEl.appendChild(btn);
-    }
-  }
-
-  private applyHighlight() {
-    const items = this.listEl.querySelectorAll<HTMLButtonElement>('.custom-select__option');
-    items.forEach((el, idx) => el.classList.toggle('custom-select__option--highlighted', idx === this._hlIdx));
-    if (this._hlIdx >= 0 && items[this._hlIdx]) items[this._hlIdx].scrollIntoView({ block: 'nearest' });
-  }
-
-  private positionDropdown() {
-    const rect = this.trigger.getBoundingClientRect();
-    const maxH = 320, gap = 4;
-    const below = window.innerHeight - rect.bottom - gap;
-    const above = rect.top - gap;
-    this.dropdown.style.top = '';
-    this.dropdown.style.bottom = '';
-    if (below >= maxH || below >= above) {
-      this.dropdown.style.top = `${rect.bottom + gap}px`;
-      this.dropdown.classList.remove('custom-select__dropdown--above');
-    } else {
-      this.dropdown.style.bottom = `${window.innerHeight - rect.top + gap}px`;
-      this.dropdown.classList.add('custom-select__dropdown--above');
-    }
-    this.dropdown.style.left = `${rect.left}px`;
-    this.dropdown.style.minWidth = `${Math.max(rect.width, 180)}px`;
-  }
-}
-
-/* ─── DOM refs ───────────────────────────────────────────────────────────── */
-
-const $  = <T extends HTMLElement>(s: string): T => document.querySelector(s) as T;
-
-let sourceDialect: CustomSelect;
-let targetDialect: CustomSelect;
-const btnFormat     = $<HTMLButtonElement>('#btn-format');
-const btnTranspile  = $<HTMLButtonElement>('#btn-transpile');
-
-const btnCopy       = $<HTMLButtonElement>('#btn-copy');
-const toastContainer  = $<HTMLDivElement>('#toast-container');
-const shortcutsDialog = $<HTMLDialogElement>('#shortcuts-dialog');
-const btnShortcuts    = $<HTMLButtonElement>('#btn-keyboard-shortcuts');
-const btnCloseShort   = $<HTMLButtonElement>('#btn-close-shortcuts');
-const divider         = $<HTMLDivElement>('.divider');
-const lineageResults  = $<HTMLDivElement>('#lineage-results');
-const errorsContent   = $<HTMLDivElement>('#errors-content');
-const tabErrors       = $<HTMLButtonElement>('#tab-errors');
-
-/* ─── Editors ────────────────────────────────────────────────────────────── */
-
-let inputEditor: EditorInstance;
-let outputEditor: EditorInstance;
-
-const SAMPLE_SQL = `-- Paste your SQL here or try this example
+const SAMPLE = `-- 近 30 天各城市的下单人数和销售额
 SELECT
-  u.id,
-  u.name,
-  COUNT(o.id) AS order_count,
-  SUM(o.amount) AS total_spent
-FROM users u
-LEFT JOIN orders o
-  ON u.id = o.user_id
-WHERE u.created_at > '2024-01-01'
-  AND u.status = 'active'
-GROUP BY u.id, u.name
-HAVING COUNT(o.id) > 3
-ORDER BY total_spent DESC
-LIMIT 50;`;
+  u.city,
+  COUNT(DISTINCT o.user_id) AS buyers,
+  SUM(NVL(o.amount, 0)) AS revenue,
+  DATE_FORMAT(MAX(o.created_at), 'yyyy-MM-dd') AS last_order
+FROM dw.orders o
+JOIN dw.users u ON o.user_id = u.id
+WHERE o.dt >= DATE_SUB(CURRENT_DATE, 30)
+GROUP BY u.city
+HAVING COUNT(*) > 10
+ORDER BY revenue DESC
+LIMIT 20;`;
 
-function initEditors() {
-  inputEditor = createEditor($('#editor-input'), {
-    placeholder: 'Paste your SQL here...',
-    initialValue: SAMPLE_SQL,
-    initialDialect: sourceDialect.value,
-  });
+const DEFAULT: Draft = { sql: SAMPLE, from: 'hive', to: 'postgres' };
 
-  outputEditor = createEditor($('#editor-output'), {
-    readonly: true,
-    placeholder: 'Output will appear here',
-    initialDialect: targetDialect.value,
-  });
+// ── State ──────────────────────────────────────────────────────────────────
+
+const draft: Draft = { ...DEFAULT };
+/** What the result card shows, so it can say when the input has moved on. */
+let shown: { sql: string; from: string; to: string } | null = null;
+let analysis: Analysis | null = null;
+let analysisHasDiff = false;
+let tab: Tab = 'ast';
+let picking: 'from' | 'to' | null = null;
+let action: AbortController | null = null;
+let analyzing: AbortController | null = null;
+
+try {
+  const t = localStorage.getItem('sqlforge:tab');
+  if (t === 'ast' || t === 'lineage' || t === 'diff') tab = t;
+} catch {
+  // keep the default tab
 }
 
-/* ─── Dialect Select ─────────────────────────────────────────────────────── */
+// ── Elements ───────────────────────────────────────────────────────────────
 
-const DIALECT_LABELS: Record<string, string> = {
-  bigquery: 'BigQuery',
-  clickhouse: 'ClickHouse',
-  databricks: 'Databricks',
-  doris: 'Doris',
-  drill: 'Drill',
-  duckdb: 'DuckDB',
-  hive: 'Hive',
-  materialize: 'Materialize',
-  mysql: 'MySQL',
-  oracle: 'Oracle',
-  postgres: 'PostgreSQL',
-  presto: 'Presto',
-  redshift: 'Redshift',
-  snowflake: 'Snowflake',
-  spark: 'Spark',
-  sqlite: 'SQLite',
-  starrocks: 'StarRocks',
-  tableau: 'Tableau',
-  teradata: 'Teradata',
-  trino: 'Trino',
-  tsql: 'T-SQL',
-};
+const paneIn = $('#pane-in');
+const paneOut = $('#pane-out');
+const formatBtn = $<HTMLButtonElement>('#format');
+const transpileBtn = $<HTMLButtonElement>('#transpile');
+const pickFrom = $<HTMLButtonElement>('#pick-from');
+const pickTo = $<HTMLButtonElement>('#pick-to');
+const swapBtn = $<HTMLButtonElement>('#swap');
+const picker = $('#picker');
+const pickerSearch = $<HTMLInputElement>('#picker-search');
+const pickerList = $('#picker-list');
+const clearBtn = $<HTMLButtonElement>('#clear');
+const copyBtn = $<HTMLButtonElement>('#copy');
+const inError = $('#in-error');
+const outNotes = $('#out-notes');
+const anBody = $('#an-body');
+const anContent = $('#an-content');
 
-async function populateDialects() {
-  let dialects: string[];
-  try {
-    dialects = await fetchDialects();
-  } catch {
-    dialects = Object.keys(DIALECT_LABELS);
-  }
+const runKeys = [
+  { key: 'Mod-Enter', run: () => (run('transpile'), true) },
+  { key: 'Shift-Mod-f', run: () => (run('format'), true) },
+];
 
-  const mapped: SelectOption[] = dialects.map(d => ({ value: d, label: DIALECT_LABELS[d] ?? d }));
+// ── Start: a shared link, else this device's draft, else the sample ───────
 
-  sourceDialect.setOptions([{ value: '', label: 'Auto Detect' }, ...mapped]);
-  targetDialect.setOptions(mapped);
-  targetDialect.value = 'postgres';
+const packed = sharedIn(location.hash);
+const fromLink = packed ? await unpackDraft(packed) : null;
+if (packed) history.replaceState(null, '', location.pathname + location.search);
+Object.assign(draft, fromLink ?? loadDraft() ?? DEFAULT);
+
+const input = createEditor($('#editor-in'), {
+  label: 'SQL 输入',
+  placeholder: '粘贴或输入 SQL，可以有多条语句',
+  dialect: draft.from,
+  value: draft.sql,
+  keys: runKeys,
+  onChange(text) {
+    draft.sql = text;
+    clearInputError();
+    updateInputMeta();
+    updateStale();
+    remember();
+  },
+});
+
+const output = createEditor($('#editor-out'), {
+  label: '转换结果',
+  placeholder: '点「转换」，结果会出现在这里',
+  dialect: draft.to,
+  readonly: true,
+  keys: runKeys,
+});
+
+const remember = debounce(() => saveDraft(draft), 400);
+
+$('#keys').innerHTML = isMac
+  ? '<kbd>⌘</kbd> <kbd>↩</kbd> 转换 · <kbd>⌘</kbd> <kbd>⇧</kbd> <kbd>F</kbd> 格式化'
+  : '<kbd>Ctrl</kbd> + <kbd>Enter</kbd> 转换 · <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> 格式化';
+
+updateDialects();
+updateInputMeta();
+renderAnalysis();
+if (fromLink) {
+  saveDraft(draft); // a reload should show what is on screen, not the older draft
+  toast('已打开分享的 SQL');
+  run('transpile');
 }
 
-/* ─── Error collection ────────────────────────────────────────────────────── */
+// ── Actions ────────────────────────────────────────────────────────────────
 
-const collectedErrors: { time: Date; source: string; message: string }[] = [];
-
-function reportError(source: string, err: unknown) {
-  const message = err instanceof Error ? err.message : String(err);
-  collectedErrors.push({ time: new Date(), source, message });
-  updateErrorsPanel();
-}
-
-function clearErrors() {
-  collectedErrors.length = 0;
-  updateErrorsPanel();
-}
-
-function updateErrorsPanel() {
-  if (collectedErrors.length === 0) {
-    errorsContent.innerHTML = `
-      <div class="analysis-view__empty analysis-view__empty--ok">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        <p>No errors</p>
-      </div>`;
-    tabErrors.textContent = 'Errors';
+async function run(kind: 'format' | 'transpile') {
+  const sql = input.get();
+  if (!sql.trim()) {
+    input.focus();
     return;
   }
-
-  tabErrors.textContent = `Errors (${collectedErrors.length})`;
-  let html = '<ul class="errors-list">';
-  for (const e of collectedErrors) {
-    const time = e.time.toLocaleTimeString();
-    html += `<li class="errors-list__item">`;
-    html += `<span class="errors-list__time">${esc(time)}</span>`;
-    html += `<span class="errors-list__source">${esc(e.source)}</span>`;
-    html += `<span class="errors-list__msg">${esc(e.message)}</span>`;
-    html += `</li>`;
+  if (sql.length > MAX_SQL) {
+    toast('SQL 超过 100,000 字符，拆成几段再试', 'error');
+    return;
   }
-  html += '</ul>';
-  errorsContent.innerHTML = html;
-}
-
-/* ─── Actions ────────────────────────────────────────────────────────────── */
-
-async function withLoading(btn: HTMLButtonElement, fn: () => Promise<void>) {
-  btn.classList.add('loading');
+  closePicker();
+  action?.abort();
+  action = new AbortController();
+  const signal = action.signal;
+  const btn = kind === 'format' ? formatBtn : transpileBtn;
+  const pane = kind === 'format' ? paneIn : paneOut;
+  const from = draft.from;
+  const to = draft.to;
+  setBusy(btn, pane, true);
+  clearInputError();
   try {
-    await fn();
-  } catch (err) {
-    reportError(btn.textContent?.trim() ?? 'action', err);
-    showToast(err instanceof Error ? err.message : 'An error occurred', 'error');
-  } finally {
-    btn.classList.remove('loading');
-  }
-}
-
-async function doFormat() {
-  await withLoading(btnFormat, async () => {
-    const sql = inputEditor.getValue().trim();
-    if (!sql) return;
-
-    clearErrors();
-    const result = await formatSQL(sql, sourceDialect.value);
-    inputEditor.setValue(result.formatted);
-    showToast('Formatted', 'success');
-
-    await Promise.all([
-      loadAST(result.formatted, sourceDialect.value),
-      loadLineage(result.formatted, sourceDialect.value),
-    ]);
-  });
-}
-
-async function doTranspile() {
-  await withLoading(btnTranspile, async () => {
-    const sql = inputEditor.getValue().trim();
-    if (!sql) return;
-
-    clearErrors();
-    showOutputSkeleton();
-    const result = await transpileSQL(
-      sql,
-      sourceDialect.value,
-      targetDialect.value,
-    );
-    outputEditor.setValue(result.result);
-
-    if (result.warnings.length > 0) {
-      for (const w of result.warnings) {
-        reportError('Transpile', new Error(w));
-      }
-      showToast(`Transpiled with ${result.warnings.length} warning(s)`, 'error');
+    if (kind === 'format') {
+      const { formatted } = await formatSQL(sql, from, signal);
+      if (formatted !== sql) input.set(formatted);
+      toast(coarse() ? '已格式化' : `已格式化，${isMac ? '⌘' : 'Ctrl'} + Z 可以撤销`);
+      analyze(formatted, from);
     } else {
-      showToast(`Transpiled to ${DIALECT_LABELS[targetDialect.value] ?? targetDialect.value}`, 'success');
+      const out = await transpileSQL(sql, from, to, signal);
+      output.set(out.result);
+      output.setDialect(to);
+      shown = { sql, from, to };
+      copyBtn.hidden = false;
+      renderNotes(out, to);
+      updateStale();
+      analyze(sql, from, { sql: out.result, dialect: to });
     }
-
-    await Promise.all([
-      loadAST(sql, sourceDialect.value),
-      loadDiff(sql, result.result, sourceDialect.value),
-      loadLineage(sql, sourceDialect.value),
-    ]);
-  });
-}
-
-
-
-/* ─── Skeleton loader ────────────────────────────────────────────────────── */
-
-function showOutputSkeleton() {
-  outputEditor.setValue('');
-  const container = document.getElementById('editor-output')!;
-  const skeleton = document.createElement('div');
-  skeleton.className = 'skeleton-overlay';
-  skeleton.innerHTML = Array.from({ length: 5 }, () =>
-    '<div class="skeleton skeleton-line"></div>'
-  ).join('');
-  skeleton.style.cssText = 'position:absolute;inset:0;z-index:2;padding-top:12px;background:var(--bg-primary)';
-  container.style.position = 'relative';
-  container.appendChild(skeleton);
-
-  setTimeout(() => skeleton.remove(), 3000);
-
-  const observer = new MutationObserver(() => {
-    if (outputEditor.getValue().length > 0) {
-      skeleton.remove();
-      observer.disconnect();
-    }
-  });
-  observer.observe(container, { childList: true, subtree: true, characterData: true });
-}
-
-/* ─── Copy ───────────────────────────────────────────────────────────────── */
-
-async function doCopy() {
-  const text = outputEditor.getValue().trim();
-  if (!text) {
-    showToast('Nothing to copy', 'error');
-    return;
+  } catch (err) {
+    if (signal.aborted) return;
+    if (err instanceof ApiError && err.status === 422) showInputError(err);
+    else toast(err instanceof Error ? err.message : '出了点问题，请重试', 'error');
+  } finally {
+    if (!signal.aborted) setBusy(btn, pane, false);
   }
+}
 
+function setBusy(btn: HTMLButtonElement, pane: HTMLElement, busy: boolean) {
+  for (const b of [formatBtn, transpileBtn]) {
+    b.classList.toggle('is-busy', busy && b === btn);
+    b.disabled = busy;
+  }
+  for (const p of [paneIn, paneOut]) p.classList.toggle('is-busy', busy && p === pane);
+}
+
+function showInputError(err: ApiError) {
+  const e = describeError(err);
+  inError.innerHTML = esc(e.text) + (e.original ? `<small>${esc(e.original)}</small>` : '');
+  inError.hidden = false;
+  input.markError(e.line);
+}
+
+function clearInputError() {
+  if (inError.hidden) return;
+  inError.hidden = true;
+  input.markError(null);
+}
+
+function renderNotes(out: TranspileResult, to: string) {
+  let html = '';
+  if (out.untranslated_functions.length) {
+    html += `<div class="q-notice q-notice--warn">这些函数没能换成 ${esc(label(to))} 的写法，需要手动改：${out.untranslated_functions
+      .map((f) => `<code>${esc(f)}</code>`)
+      .join('、')}</div>`;
+  }
+  if (out.warnings.length) {
+    html += `<div class="q-notice q-notice--warn">目标方言表达不了其中一些写法，结果可能要手动调整：<ul>${out.warnings
+      .map((w) => `<li><code>${esc(w)}</code></li>`)
+      .join('')}</ul></div>`;
+  }
+  if (out.rewritten_functions.length) {
+    html += `<p class="q-meta">换了写法的函数：${out.rewritten_functions.map(esc).join('、')}</p>`;
+  }
+  outNotes.innerHTML = html;
+  outNotes.hidden = !html;
+}
+
+function updateInputMeta() {
+  const doc = input.view.state.doc;
+  const empty = doc.length === 0;
+  const count = $('#in-count');
+  count.textContent = empty ? '' : `${doc.lines} 行 · ${doc.length.toLocaleString()} 字符`;
+  count.classList.toggle('q-count--warn', doc.length > MAX_SQL);
+  clearBtn.textContent = empty ? '示例' : '清空';
+}
+
+function updateStale() {
+  const stale = !!shown && (shown.sql !== draft.sql || shown.from !== draft.from || shown.to !== draft.to);
+  $('#out-stale').hidden = !stale;
+}
+
+clearBtn.addEventListener('click', () => {
+  if (input.get()) {
+    input.set('');
+    output.set('');
+    shown = null;
+    copyBtn.hidden = true;
+    outNotes.hidden = true;
+    analysis = null;
+    renderAnalysis();
+    updateStale();
+  } else {
+    input.set(SAMPLE);
+  }
+  input.focus();
+});
+
+copyBtn.addEventListener('click', async () => {
+  const text = output.get();
+  if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    btnCopy.classList.add('copied');
-    const label = btnCopy.querySelector('.btn-label')!;
-    label.textContent = 'Copied';
-    showToast('Copied to clipboard', 'success');
-    setTimeout(() => {
-      btnCopy.classList.remove('copied');
-      label.textContent = 'Copy';
-    }, 2000);
   } catch {
-    showToast('Failed to copy', 'error');
+    toast('复制失败，请检查浏览器的剪贴板权限', 'error');
+    return;
   }
-}
+  const use = copyBtn.querySelector('use')!;
+  use.setAttribute('href', '#i-check');
+  setTimeout(() => use.setAttribute('href', '#i-copy'), 1500);
+  toast('已复制结果');
+});
 
-/* ─── Analysis Panel ─────────────────────────────────────────────────────── */
+formatBtn.addEventListener('click', () => run('format'));
+transpileBtn.addEventListener('click', () => run('transpile'));
 
-function initAnalysisResize() {
-  const panel = document.querySelector<HTMLElement>('.analysis-panel')!;
-  const resizeBar = document.getElementById('analysis-resize')!;
-  let isDragging = false;
-  let startY = 0;
-  let startHeight = 0;
-
-  resizeBar.addEventListener('mousedown', (e) => {
+document.addEventListener('keydown', (e) => {
+  if (e.defaultPrevented || e.isComposing) return;
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (mod && e.key === 'Enter') {
     e.preventDefault();
-    isDragging = true;
-    startY = e.clientY;
-    startHeight = panel.offsetHeight;
-    resizeBar.classList.add('dragging');
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  });
+    run('transpile');
+  } else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    run('format');
+  }
+});
 
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    const delta = startY - e.clientY;
-    const newHeight = Math.max(80, Math.min(window.innerHeight * 0.5, startHeight + delta));
-    panel.style.height = `${newHeight}px`;
-  });
+// ── Dialects ───────────────────────────────────────────────────────────────
 
-  document.addEventListener('mouseup', () => {
-    if (!isDragging) return;
-    isDragging = false;
-    resizeBar.classList.remove('dragging');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  });
+function updateDialects() {
+  $('#from-label').textContent = label(draft.from);
+  $('#to-label').textContent = label(draft.to);
+  $('#in-dialect').textContent = label(draft.from);
+  $('#out-dialect').textContent = label(draft.to);
+  swapBtn.disabled = draft.from === '';
+  input.setDialect(draft.from);
+  pickFrom.setAttribute('aria-expanded', String(picking === 'from'));
+  pickTo.setAttribute('aria-expanded', String(picking === 'to'));
 }
 
-function initTabs() {
-  const tabs = document.querySelectorAll<HTMLButtonElement>('.analysis-tab');
-  const panels = document.querySelectorAll<HTMLDivElement>('.analysis-view');
-
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      tabs.forEach((t) => t.setAttribute('aria-selected', 'false'));
-      panels.forEach((p) => (p.hidden = true));
-
-      tab.setAttribute('aria-selected', 'true');
-      const panelId = tab.getAttribute('aria-controls')!;
-      document.getElementById(panelId)!.hidden = false;
-    });
-  });
+function openPicker(which: 'from' | 'to') {
+  if (picking === which) return closePicker();
+  picking = which;
+  $('#picker-title').textContent = which === 'from' ? '源方言' : '目标方言';
+  pickerSearch.value = '';
+  renderPicker();
+  picker.hidden = false;
+  updateDialects();
+  if (!coarse()) pickerSearch.focus(); // a phone keyboard would cover the list
 }
 
-async function loadAST(sql: string, dialect: string) {
+function closePicker(focusTrigger = false) {
+  if (!picking) return;
+  const trigger = picking === 'from' ? pickFrom : pickTo;
+  picking = null;
+  picker.hidden = true;
+  updateDialects();
+  if (focusTrigger) trigger.focus();
+}
+
+function renderPicker() {
+  if (!picking) return;
+  const current = draft[picking];
+  const list = groups(pickerSearch.value, picking === 'from');
+  const searching = !!pickerSearch.value.trim();
+  if (!list[0].items.length) {
+    pickerList.innerHTML = `<p class="q-empty">没有找到「${esc(pickerSearch.value.trim())}」</p>`;
+    return;
+  }
+  pickerList.innerHTML = list
+    .map(
+      (g) => `<div class="dgroup"><h4>${g.title}</h4><div class="dgrid">${g.items
+        .map(
+          (d, i) =>
+            `<button type="button" class="ditem${searching && i === 0 ? ' is-first' : ''}" data-dialect="${esc(d)}" aria-pressed="${d === current}">${esc(label(d))}</button>`,
+        )
+        .join('')}</div></div>`,
+    )
+    .join('');
+}
+
+function pick(dialect: string) {
+  if (!picking) return;
+  const changed = draft[picking] !== dialect;
+  draft[picking] = dialect;
+  closePicker(true);
+  if (!changed) return;
+  remember();
+  updateStale();
+  if (shown) run('transpile'); // the result is on screen: keep it current
+}
+
+pickFrom.addEventListener('click', () => openPicker('from'));
+pickTo.addEventListener('click', () => openPicker('to'));
+$('#picker-close').addEventListener('click', () => closePicker(true));
+pickerSearch.addEventListener('input', renderPicker);
+pickerSearch.addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const first = pickerList.querySelector<HTMLButtonElement>('.ditem');
+    if (first) pick(first.dataset.dialect!);
+  }
+});
+picker.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    closePicker(true);
+  }
+});
+pickerList.addEventListener('click', (e) => {
+  const item = (e.target as HTMLElement).closest<HTMLButtonElement>('.ditem');
+  if (item) pick(item.dataset.dialect!);
+});
+
+swapBtn.addEventListener('click', () => {
+  if (!draft.from) return;
+  const result = output.get();
+  const current = !!shown && $('#out-stale').hidden;
+  [draft.from, draft.to] = [draft.to, draft.from];
+  closePicker();
+  updateDialects();
+  remember();
+  // With a current result on screen, swapping turns it around: the result
+  // becomes the input and is converted back.
+  if (current && result) {
+    input.set(result);
+    run('transpile');
+  } else {
+    updateStale();
+  }
+});
+
+// ── Analysis ───────────────────────────────────────────────────────────────
+
+async function analyze(sql: string, dialect: string, target?: { sql: string; dialect: string }) {
+  analyzing?.abort();
+  analyzing = new AbortController();
+  const signal = analyzing.signal;
+  anBody.classList.add('is-busy');
   try {
-    const result = await parseSQL(sql, dialect);
-    const panel = document.getElementById('panel-ast')!;
-    panel.innerHTML = renderASTTree(result.ast);
+    analysis = await analyzeSQL(sql, dialect, target, signal);
+    analysisHasDiff = !!target;
+    renderAnalysis();
   } catch (err) {
-    reportError('AST', err);
+    if (signal.aborted) return;
+    anContent.innerHTML = `<p class="q-notice q-notice--warn">分析没能完成：${esc(err instanceof Error ? err.message : String(err))}</p>`;
+  } finally {
+    if (!signal.aborted) anBody.classList.remove('is-busy');
   }
 }
 
-async function loadDiff(sourceSql: string, targetSql: string, dialect: string) {
-  try {
-    const result = await diffSQL(sourceSql, targetSql, dialect);
-    const panel = document.getElementById('panel-diff')!;
-    panel.innerHTML = renderDiff(result.changes, result.summary);
-  } catch (err) {
-    reportError('Diff', err);
-  }
+function renderAnalysis() {
+  document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    if (on) anBody.setAttribute('aria-labelledby', b.id);
+  });
+  $('#an-meta').textContent = analysis ? summary(analysis) : '';
+  anContent.innerHTML = analysis ? renderTab(tab, analysis, analysisHasDiff) : emptyAnalysis();
 }
 
-async function loadLineage(sql: string, dialect: string) {
-  try {
-    const result = await lineageSQL(sql, dialect);
-    lineageResults.innerHTML = renderLineage(result.mappings);
-  } catch (err) {
-    reportError('Lineage', err);
-    lineageResults.innerHTML = `<div class="analysis-view__empty"><p>Lineage analysis failed. Check the Errors tab for details.</p></div>`;
-  }
+const tabs = [...document.querySelectorAll<HTMLButtonElement>('[data-tab]')];
+for (const b of tabs) {
+  b.addEventListener('click', () => {
+    tab = b.dataset.tab as Tab;
+    try {
+      localStorage.setItem('sqlforge:tab', tab);
+    } catch {
+      // not remembered
+    }
+    renderAnalysis();
+  });
+  b.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const next = tabs[(tabs.indexOf(b) + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    next.click();
+    next.focus();
+  });
 }
 
-function renderLineage(mappings: LineageMapping[]): string {
-  if (mappings.length === 0) {
-    return '<div class="analysis-view__empty"><p>No output columns detected</p></div>';
+anContent.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-ast]');
+  if (!btn) return;
+  const open = btn.dataset.ast === 'open';
+  anContent.querySelectorAll('details').forEach((d) => (d.open = open));
+});
+
+// ── Share ──────────────────────────────────────────────────────────────────
+
+$('#share').addEventListener('click', async () => {
+  if (!draft.sql.trim()) {
+    toast('先写点 SQL 再分享');
+    return;
   }
-
-  let html = '<table class="lineage-table">';
-  html += '<thead><tr>';
-  html += '<th>Output</th>';
-  html += '<th>Expression</th>';
-  html += '<th>Source</th>';
-  html += '</tr></thead>';
-  html += '<tbody>';
-
-  for (const m of mappings) {
-    const source = formatSource(m.source_table, m.source_column);
-    html += '<tr>';
-    html += `<td><code class="lineage-table__col">${esc(m.output)}</code></td>`;
-    html += `<td><code class="lineage-table__expr">${esc(m.expression)}</code></td>`;
-    html += `<td>${source}</td>`;
-    html += '</tr>';
+  const url = `${location.origin}${location.pathname}#s=${await packDraft(draft)}`;
+  if (url.length > 60_000) {
+    toast('这段 SQL 太长，放不进链接', 'error');
+    return;
   }
-
-  html += '</tbody></table>';
-  return html;
-}
-
-function formatSource(table: string | null, column: string | null): string {
-  if (!table && !column) {
-    return '<span class="lineage-table__unknown">—</span>';
-  }
-  const parts: string[] = [];
-  if (table) parts.push(`<span class="lineage-table__table">${esc(table)}</span>`);
-  if (column) parts.push(`<code class="lineage-table__src-col">${esc(column)}</code>`);
-  return parts.join('<span class="lineage-table__dot">.</span>');
-}
-
-function renderASTTree(node: ASTNode): string {
-  const hasChildren = node.children && node.children.length > 0;
-  const keyLabel = node.key ? `<span class="ast-node__key">${esc(node.key)}:</span> ` : '';
-  const sqlPreview = node.sql.length > 60 ? node.sql.slice(0, 60) + '…' : node.sql;
-
-  let html = '<ul class="ast-tree">';
-  html += `<li class="ast-node">`;
-  html += `${keyLabel}<span class="ast-node__type">${esc(node.type)}</span>`;
-  html += `<span class="ast-node__sql">${esc(sqlPreview)}</span>`;
-
-  if (hasChildren) {
-    for (const child of node.children!) {
-      html += renderASTTree(child);
+  if (coarse() && navigator.share) {
+    try {
+      await navigator.share({ title: 'SQLForge', url });
+      return;
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
     }
   }
-
-  html += `</li></ul>`;
-  return html;
-}
-
-function renderDiff(changes: { type: string; sql: string }[], summary: Record<string, number>): string {
-  if (changes.length === 0) {
-    return '<div class="analysis-view__empty"><p>No differences found</p></div>';
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('链接已复制，打开就能看到这段 SQL 和方言');
+  } catch {
+    toast('复制失败，请检查浏览器的剪贴板权限', 'error');
   }
-
-  let html = `<div style="margin-bottom:8px;font-family:var(--font-ui);font-size:0.75rem;color:var(--text-muted)">`;
-  html += Object.entries(summary).map(([k, v]) => `${k}: ${v}`).join(' · ');
-  html += `</div>`;
-
-  html += '<ul class="diff-list">';
-  for (const change of changes.slice(0, 50)) {
-    html += `<li class="diff-item diff-item--${esc(change.type)}">`;
-    html += `<span class="diff-item__badge">${esc(change.type)}</span>`;
-    html += `<code>${esc(change.sql)}</code>`;
-    html += `</li>`;
-  }
-  html += '</ul>';
-  return html;
-}
-
-function esc(s: string): string {
-  const el = document.createElement('span');
-  el.textContent = s;
-  return el.innerHTML;
-}
-
-/* ─── Toast ──────────────────────────────────────────────────────────────── */
-
-function showToast(message: string, type: 'success' | 'error' = 'success') {
-  const toast = document.createElement('div');
-  toast.className = `toast toast--${type}`;
-  toast.textContent = message;
-  toastContainer.appendChild(toast);
-
-  setTimeout(() => {
-    toast.classList.add('toast--out');
-    toast.addEventListener('animationend', () => toast.remove());
-  }, 2500);
-}
-
-/* ─── Divider drag ───────────────────────────────────────────────────────── */
-
-function initDivider() {
-  const workspace = document.querySelector('.workspace')!;
-  const inputPanel = document.querySelector('.panel--input') as HTMLElement;
-  const outputPanel = document.querySelector('.panel--output') as HTMLElement;
-
-  let isDragging = false;
-
-  function isVerticalLayout(): boolean {
-    return getComputedStyle(workspace).flexDirection === 'column';
-  }
-
-  divider.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    isDragging = true;
-    divider.classList.add('dragging');
-    document.body.style.cursor = isVerticalLayout() ? 'row-resize' : 'col-resize';
-    document.body.style.userSelect = 'none';
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    const rect = workspace.getBoundingClientRect();
-    const vertical = isVerticalLayout();
-    const offset = vertical ? e.clientY - rect.top : e.clientX - rect.left;
-    const total = vertical ? rect.height : rect.width;
-    const pct = Math.max(20, Math.min(80, (offset / total) * 100));
-
-    inputPanel.style.flex = `0 0 ${pct}%`;
-    outputPanel.style.flex = `0 0 ${100 - pct}%`;
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!isDragging) return;
-    isDragging = false;
-    divider.classList.remove('dragging');
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-  });
-}
-
-/* ─── Shortcuts dialog ───────────────────────────────────────────────────── */
-
-function initShortcuts() {
-  btnShortcuts.addEventListener('click', () => shortcutsDialog.showModal());
-  btnCloseShort.addEventListener('click', () => shortcutsDialog.close());
-  shortcutsDialog.addEventListener('click', (e) => {
-    if (e.target === shortcutsDialog) shortcutsDialog.close();
-  });
-}
-
-/* ─── Keyboard shortcuts ─────────────────────────────────────────────────── */
-
-function initGlobalKeys() {
-  document.addEventListener('keydown', (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        doTranspile();
-      } else if (e.shiftKey && e.key === 'F') {
-        e.preventDefault();
-        doFormat();
-      } else if (e.shiftKey && e.key === 'C') {
-        e.preventDefault();
-        doCopy();
-      }
-    }
-  });
-}
-
-/* ─── Dialect change handlers ────────────────────────────────────────────── */
-
-function initDialectChanges() {
-  sourceDialect.addEventListener('change', () => {
-    inputEditor.setDialect(sourceDialect.value);
-  });
-
-  targetDialect.addEventListener('change', () => {
-    outputEditor.setDialect(targetDialect.value);
-  });
-}
-
-/* ─── Init ───────────────────────────────────────────────────────────────── */
-
-async function init() {
-  sourceDialect = new CustomSelect($<HTMLSelectElement>('#source-dialect'));
-  targetDialect = new CustomSelect($<HTMLSelectElement>('#target-dialect'));
-
-  initEditors();
-  initTabs();
-  initDivider();
-  initAnalysisResize();
-  initShortcuts();
-  initGlobalKeys();
-  initDialectChanges();
-
-  btnFormat.addEventListener('click', doFormat);
-  btnTranspile.addEventListener('click', doTranspile);
-  btnCopy.addEventListener('click', doCopy);
-
-  await populateDialects();
-}
-
-init();
+});

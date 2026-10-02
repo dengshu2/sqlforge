@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: Build frontend ──────────────────────────────────────────────────
-FROM node:22-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 WORKDIR /app
 
 COPY frontend/package.json frontend/package-lock.json ./
@@ -47,6 +47,6 @@ EXPOSE 8080
 USER appuser
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:8080/health || exit 1
+  CMD wget -qO- http://127.0.0.1:8080/health || exit 1
 
-CMD ["uvicorn", "sqlforge.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "sqlforge.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-server-header"]

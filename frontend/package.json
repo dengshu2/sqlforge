@@ -1,24 +1,25 @@
 {
   "name": "sqlforge-frontend",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "devDependencies": {
-    "typescript": "~5.8.0",
-    "vite": "^6.0.0"
+    "typescript": "^7.0.0",
+    "vite": "^8.0.0",
+    "vitest": "^5.0.0"
   },
   "dependencies": {
-    "@codemirror/commands": "^6.10.3",
-    "@codemirror/lang-sql": "^6.8.0",
-    "@codemirror/language": "^6.10.0",
-    "@codemirror/state": "^6.5.0",
-    "@codemirror/theme-one-dark": "^6.1.0",
-    "@codemirror/view": "^6.36.0",
-    "codemirror": "^6.0.1"
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.0",
+    "@codemirror/state": "^6.7.0",
+    "@codemirror/view": "^6.43.0",
+    "@lezer/highlight": "^1.2.5"
   }
 }

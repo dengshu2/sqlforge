@@ -9,10 +9,15 @@ services:
     ports:
       - "127.0.0.1:7082:8080"
     environment:
-      - PORT=8080
-      - STATIC_DIR=/app/static
-      - CORS_ORIGINS=https://sqlforge.dengshu.ovh
       - TZ=Asia/Shanghai
+      # Caddy sets X-Real-IP to the visitor's address; the rate limit keys on it.
+      - CLIENT_IP_HEADER=X-Real-IP
+      - ANALYTICS_ORIGINS=https://umami.dengshu.ovh https://static.cloudflareinsights.com https://cloudflareinsights.com
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
     networks:
       - proxy-network
     healthcheck:

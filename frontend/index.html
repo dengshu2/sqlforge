@@ -1,146 +1,111 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SQLForge — SQL Formatting &amp; Dialect Transpilation</title>
-  <meta name="description" content="Format and transpile SQL across 31+ database dialects. Powered by sqlglot." />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script defer src="https://umami.dengshu.ovh/script.js" data-website-id="%VITE_UMAMI_WEBSITE_ID%"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>SQLForge · SQL 格式化与方言转换</title>
+  <meta name="description" content="在线格式化 SQL，并在 Hive、Spark、ClickHouse、MySQL、PostgreSQL 等 27 种方言之间转换；附带语法树、字段血缘和结构对比。基于 sqlglot。">
+  <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f0f0f" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/favicon.ico?v=2">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2">
+  <script defer src="https://umami.dengshu.ovh/script.js" data-website-id="%VITE_UMAMI_WEBSITE_ID%" data-domains="sqlforge.dengshu.ovh"></script>
+  <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <a href="#main-content" class="skip-link">Skip to content</a>
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4.3 1.4-4.3-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12.3 12.3 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h15M15 4l4 4-4 4"/><path d="M20 16H5M9 12l-4 4 4 4"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5 10 17l9-10"/></symbol>
+  </svg>
 
-  <header class="topbar" role="banner">
-    <div class="topbar__brand">
-      <svg class="topbar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M4 20h16" /><path d="M6 16l2-12h8l2 12" /><path d="M8 4h8" /><circle cx="12" cy="12" r="1.5" />
-      </svg>
-      <span class="topbar__title">SQLForge</span>
-    </div>
-    <nav class="topbar__nav" aria-label="Main navigation">
-      <a href="https://github.com/dengshu2/sqlforge" class="topbar__btn" title="GitHub" aria-label="GitHub" target="_blank" rel="noopener">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
-      </a>
-      <button id="btn-keyboard-shortcuts" class="topbar__btn" type="button" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/></svg>
-      </button>
-      <a href="/api/docs" class="topbar__btn" title="API Documentation" aria-label="API Documentation" target="_blank" rel="noopener">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 -2 2v16a2 2 0 0 2 2h12a2 2 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-      </a>
-    </nav>
-  </header>
+  <a class="q-skip" href="#editor-in">跳至 SQL 输入框</a>
 
-  <main id="main-content" class="workspace">
-    <section class="panel panel--input" aria-label="SQL Input">
-      <div class="panel__header">
-        <label for="source-dialect" class="panel__label">Source Dialect</label>
-        <select id="source-dialect">
-          <option value="">Auto Detect</option>
-        </select>
+  <div class="q-app q-app--wide">
+    <header class="q-top">
+      <a class="q-round" href="https://github.com/dengshu2/sqlforge" target="_blank" rel="noopener" aria-label="GitHub 上的源码"><svg class="q-i"><use href="#i-github"/></svg></a>
+      <div class="q-status">
+        <b class="brand"><span class="q-mark" aria-hidden="true">S</span>SQLForge</b>
+        <span>SQL 格式化与方言转换</span>
       </div>
-      <div id="editor-input" class="editor-container"></div>
-    </section>
+      <button class="q-pill" id="share" type="button"><svg class="q-i q-i--sm"><use href="#i-link"/></svg>分享</button>
+    </header>
 
-    <div class="divider" role="separator" aria-orientation="vertical">
-      <div class="divider__handle" title="Drag to resize"></div>
-    </div>
-
-    <section class="panel panel--output" aria-label="SQL Output">
-      <div class="panel__header">
-        <label for="target-dialect" class="panel__label">Target Dialect</label>
-        <select id="target-dialect">
-          <option value="postgres">PostgreSQL</option>
-        </select>
-        <button id="btn-copy" class="panel__action-btn" type="button" title="Copy output" aria-label="Copy output">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          <span class="btn-label">Copy</span>
-        </button>
+    <main class="q-page work">
+      <div class="toolbar">
+        <div class="route" role="group" aria-label="方言">
+          <button class="pick" id="pick-from" type="button" aria-expanded="false" aria-controls="picker">
+            <small>从</small><b id="from-label">Hive</b><svg class="q-i q-i--sm chev"><use href="#i-down"/></svg>
+          </button>
+          <button class="q-play q-play--sm swap" id="swap" type="button" aria-label="交换源方言和目标方言"><svg class="q-i"><use href="#i-swap"/></svg></button>
+          <button class="pick" id="pick-to" type="button" aria-expanded="false" aria-controls="picker">
+            <small>转成</small><b id="to-label">PostgreSQL</b><svg class="q-i q-i--sm chev"><use href="#i-down"/></svg>
+          </button>
+        </div>
+        <div class="q-actions">
+          <button class="q-btn" id="format" type="button"><span class="q-spinner" aria-hidden="true"></span>格式化</button>
+          <button class="q-btn q-btn--primary" id="transpile" type="button"><span class="q-spinner" aria-hidden="true"></span>转换</button>
+        </div>
       </div>
-      <div id="editor-output" class="editor-container"></div>
-    </section>
-  </main>
 
-  <div class="actions-bar">
-    <div class="actions-bar__group">
-      <button id="btn-format" class="action-btn" type="button">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10H7M21 6H3M21 14H3M21 18H7"/></svg>
-        <span>Format</span>
-        <kbd class="action-btn__kbd">⌃⇧F</kbd>
-      </button>
-      <button id="btn-transpile" class="action-btn action-btn--primary" type="button">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-        <span>Transpile</span>
-        <kbd class="action-btn__kbd">⌃⏎</kbd>
-      </button>
+      <section class="picker q-rise" id="picker" aria-labelledby="picker-title" hidden>
+        <div class="picker-head">
+          <h3 id="picker-title">源方言</h3>
+          <input class="q-search" id="picker-search" type="search" placeholder="搜索方言" aria-label="搜索方言" autocomplete="off" spellcheck="false">
+          <button class="q-btn q-btn--quiet q-btn--sm" id="picker-close" type="button">收起</button>
+        </div>
+        <div id="picker-list"></div>
+      </section>
 
-    </div>
+      <div class="panes">
+        <section class="pane pane--in" id="pane-in" aria-labelledby="in-title">
+          <div class="pane-head">
+            <h2 class="pane-title" id="in-title">输入 · <span id="in-dialect">Hive</span></h2>
+            <span class="q-count" id="in-count"></span>
+            <button class="q-btn q-btn--quiet q-btn--sm" id="clear" type="button">清空</button>
+          </div>
+          <div class="code" id="editor-in"></div>
+          <p class="q-notice q-notice--danger in-error" id="in-error" role="alert" hidden></p>
+          <span class="q-typing waiting" aria-hidden="true"><i></i><i></i><i></i></span>
+        </section>
+
+        <section class="pane pane--out" id="pane-out" aria-labelledby="out-title" aria-live="polite">
+          <div class="pane-head">
+            <h2 class="pane-title" id="out-title">结果 · <span id="out-dialect">PostgreSQL</span><span class="stale" id="out-stale" hidden> · 输入已改动</span></h2>
+            <button class="q-play q-play--sm" id="copy" type="button" aria-label="复制结果" hidden><svg class="q-i"><use href="#i-copy"/></svg></button>
+          </div>
+          <div class="code" id="editor-out"></div>
+          <div class="notes" id="out-notes" hidden></div>
+          <span class="q-typing waiting" aria-hidden="true"><i></i><i></i><i></i></span>
+        </section>
+      </div>
+      <p class="keys" id="keys"></p>
+
+      <section class="q-sec analysis" aria-labelledby="an-title">
+        <div class="an-head">
+          <h3 id="an-title">分析</h3>
+          <div class="q-seg" role="tablist" aria-label="分析">
+            <button type="button" role="tab" id="tab-ast" data-tab="ast" aria-selected="true" aria-controls="an-body">语法树</button>
+            <button type="button" role="tab" id="tab-lineage" data-tab="lineage" aria-selected="false" aria-controls="an-body">字段血缘</button>
+            <button type="button" role="tab" id="tab-diff" data-tab="diff" aria-selected="false" aria-controls="an-body">改动</button>
+          </div>
+          <span class="q-meta an-meta" id="an-meta"></span>
+        </div>
+        <div class="an-body" id="an-body" role="tabpanel" aria-labelledby="tab-ast">
+          <div id="an-content"></div>
+          <span class="q-typing waiting" aria-hidden="true"><i></i><i></i><i></i></span>
+        </div>
+      </section>
+
+      <footer class="foot">
+        基于 <a href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener">sqlglot</a> · 27 种方言 · <a href="/api/docs" target="_blank" rel="noopener">API 文档</a>
+      </footer>
+    </main>
   </div>
 
-  <aside class="analysis-panel" aria-label="Analysis">
-    <div class="analysis-panel__resize" id="analysis-resize" title="Drag to resize">
-      <div class="analysis-panel__resize-handle"></div>
-    </div>
-    <nav class="analysis-panel__tabs" role="tablist" aria-label="Analysis tabs">
-      <button role="tab" class="analysis-tab" id="tab-ast" aria-selected="true" aria-controls="panel-ast">AST</button>
-      <button role="tab" class="analysis-tab" id="tab-lineage" aria-selected="false" aria-controls="panel-lineage">Lineage</button>
-      <button role="tab" class="analysis-tab" id="tab-diff" aria-selected="false" aria-controls="panel-diff">Diff</button>
-      <button role="tab" class="analysis-tab" id="tab-errors" aria-selected="false" aria-controls="panel-errors">Errors</button>
-    </nav>
-    <div class="analysis-panel__content">
-      <div role="tabpanel" class="analysis-view" id="panel-ast" aria-labelledby="tab-ast">
-        <div class="analysis-view__empty">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <p>Run <strong>Format</strong> or <strong>Transpile</strong> to see the AST</p>
-        </div>
-      </div>
-      <div role="tabpanel" class="analysis-view" id="panel-lineage" aria-labelledby="tab-lineage" hidden>
-        <div id="lineage-results">
-          <div class="analysis-view__empty">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M3 3v18h18"/><path d="M7 16l4-8 4 4 6-10"/></svg>
-            <p>Run <strong>Format</strong> or <strong>Transpile</strong> to trace column lineage</p>
-          </div>
-        </div>
-      </div>
-      <div role="tabpanel" class="analysis-view" id="panel-diff" aria-labelledby="tab-diff" hidden>
-        <div class="analysis-view__empty">
-          <p>Transpile first, then view the semantic diff between input and output</p>
-        </div>
-      </div>
-      <div role="tabpanel" class="analysis-view" id="panel-errors" aria-labelledby="tab-errors" hidden>
-        <div id="errors-content">
-          <div class="analysis-view__empty analysis-view__empty--ok">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <p>No errors</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </aside>
-
-  <footer class="app-footer">
-    <span>Powered by <a href="https://github.com/tobymao/sqlglot" target="_blank" rel="noopener">sqlglot</a></span>
-    <span class="app-footer__dot">·</span>
-    <span>31+ SQL dialects</span>
-  </footer>
-
-  <div id="toast-container" class="toast-container" aria-live="polite"></div>
-  <dialog id="shortcuts-dialog" class="shortcuts-dialog">
-    <header class="shortcuts-dialog__header">
-      <h2>Keyboard Shortcuts</h2>
-      <button id="btn-close-shortcuts" class="shortcuts-dialog__close" type="button" aria-label="Close">&times;</button>
-    </header>
-    <dl class="shortcuts-list">
-      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Enter</kbd></dt><dd>Transpile</dd></div>
-      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd></dt><dd>Format</dd></div>
-
-      <div class="shortcuts-list__item"><dt><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd></dt><dd>Copy output</dd></div>
-    </dl>
-  </dialog>
-
-  <script type="module" src="/src/main.ts"></script>
+  <div class="q-toasts" id="toasts" aria-live="polite"></div>
 </body>
 </html>

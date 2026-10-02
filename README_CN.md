@@ -2,72 +2,68 @@
 
 [English](./README.md)
 
-基于 [sqlglot](https://github.com/tobymao/sqlglot) 的 SQL 格式化、方言转换与列级血缘分析工具。
+格式化 SQL，并在 27 种方言之间转换（Hive、Spark、ClickHouse、MySQL、PostgreSQL、Trino 等），同时给出语法树、字段血缘和结构对比。基于 [sqlglot](https://github.com/tobymao/sqlglot)。
 
-**在线体验 → [sqlforge.dengshu.ovh](https://sqlforge.dengshu.ovh)**
+**在线使用 → [sqlforge.dengshu.ovh](https://sqlforge.dengshu.ovh)**
 
-## 功能特性
+## 功能
 
-- **格式化 (Format)** — 将杂乱的 SQL 格式化为可读、规范的缩进代码
-- **方言转换 (Transpile)** — 在 31+ 种数据库方言之间自动转换 SQL（MySQL ↔ PostgreSQL ↔ Spark ↔ BigQuery ↔ ...）
-- **列级血缘 (Lineage)** — 自动追踪 SELECT 中每一列的数据来源，支持穿透 CTE、子查询和 JOIN
-- **语法树查看 (AST)** — 可视化展示 SQL 的抽象语法树结构
-- **语义对比 (Diff)** — 输入与输出 SQL 之间的语义级别差异对比
+- **格式化**：整段脚本逐条语句排版，保留原来的函数名（Hive 的 `NVL` 还是 `NVL`）。
+- **转换**：改写成目标方言，列出换了写法的函数；如果 sqlglot 在结果里留下了它自己的内部函数名（比如 `TS_OR_DS_ADD`），会提醒需要手动改。
+- **错误就地提示**：解析出错时给出行号和列号，并在编辑器里标出那一行。
+- **分析**：语法树；每个输出字段来自哪张表的哪一列（能穿过 CTE、子查询、JOIN 和 UNION）；输入和结果之间的结构改动。
+- **记住和分享**：上次的输入和方言保存在本机；分享链接把 SQL 放在网址的 `#` 后面，不会发到服务器。
 
-## 架构
+## API
 
-```
-前端 (Vite + TypeScript + CodeMirror 6)
-    │
-    ▼  HTTP REST
-后端 (FastAPI + sqlglot)
-    ├── /api/format     格式化
-    ├── /api/transpile   方言转换
-    ├── /api/parse       语法解析
-    ├── /api/diff        语义对比
-    └── /api/lineage     血缘分析
-```
+页面上的操作都是 JSON 接口，交互文档在 `/api/docs`。
 
-单容器部署：FastAPI 同时提供 API 和前端静态资源服务。
+| 接口 | 请求 | 返回 |
+|---|---|---|
+| `POST /api/format` | `sql`、`dialect`、`indent` | `formatted` |
+| `POST /api/transpile` | `sql`、`source_dialect`、`target_dialect`、`pretty`、`identify` | `result`、`warnings`、`rewritten_functions`、`untranslated_functions` |
+| `POST /api/analyze` | `sql`、`dialect`，可选 `target_sql` + `target_dialect` | `ast`、`tables`、`columns`、`lineage`、`diff`、`errors` |
+| `POST /api/parse`、`/api/lineage`、`/api/diff` | analyze 的单项 | |
+| `GET /api/dialects` | | 方言列表 |
 
-## 快速开始
+方言留空表示 sqlglot 的通用 SQL。每次请求的 SQL 最多 100,000 字符；每个访问者可以连续发 30 次，之后每秒恢复 1 次，超出返回 429 和 `Retry-After`。出错时返回 `{"detail": "...", "errors": [{"line", "col", "description"}]}`。
 
-### 本地开发
+## 本地开发
 
 ```bash
-# 后端
+# 后端，端口 8000
 cd backend
 uv sync
 uv run uvicorn sqlforge.main:app --reload --port 8000
+uv run pytest
 
-# 前端（另开一个终端）
+# 前端，端口 5173，/api 代理到 8000
 cd frontend
 npm install
 npm run dev
+npm test
 ```
 
-Vite 开发服务器会自动将 `/api` 请求代理到 `localhost:8000`。
+## 部署
 
-### Docker 部署
+一个容器同时提供 API 和页面：
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose up -d --build
 ```
 
-容器监听 `127.0.0.1:7082`，通过 Caddy 将域名指向该端口即可。
+监听 `127.0.0.1:7082`，放在反向代理后面。环境变量：
+
+| 变量 | 作用 |
+|---|---|
+| `CLIENT_IP_HEADER` | 代理写入访问者地址的请求头（比如 `X-Real-IP`），限流按它计算；不设则用连接地址。 |
+| `ANALYTICS_ORIGINS` | 页面的 Content-Security-Policy 额外允许的统计脚本和上报地址。 |
+| `RATE_PER_SECOND`、`RATE_BURST` | 接口限流（默认 1 和 30）。 |
+| `VITE_UMAMI_WEBSITE_ID` | 构建参数，Umami 统计的站点 ID。 |
 
 ## 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 前端 | Vite、TypeScript、CodeMirror 6 |
-| 后端 | Python 3.13、FastAPI、sqlglot |
-| 部署 | Docker 单容器 |
-
-## 支持的 SQL 方言
-
-BigQuery · ClickHouse · Databricks · Doris · Drill · DuckDB · Hive · Materialize · MySQL · Oracle · PostgreSQL · Presto · Redshift · Snowflake · Spark · SQLite · StarRocks · Tableau · Teradata · Trino · T-SQL 等。
+Python 3.13、FastAPI、sqlglot · TypeScript、Vite、CodeMirror 6 · Quiet UI 样式。
 
 ## 许可
 

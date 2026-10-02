@@ -1,73 +1,69 @@
 # SQLForge
 
-[中文文档](./README_CN.md)
+[中文](./README_CN.md)
 
-SQL formatting, dialect transpilation, and column-level lineage analysis — powered by [sqlglot](https://github.com/tobymao/sqlglot).
+Format SQL and convert it between 27 dialects (Hive, Spark, ClickHouse, MySQL, PostgreSQL, Trino and more), with the syntax tree, column lineage and a structural diff alongside. Powered by [sqlglot](https://github.com/tobymao/sqlglot).
 
-**Live demo → [sqlforge.dengshu.ovh](https://sqlforge.dengshu.ovh)**
+**Try it → [sqlforge.dengshu.ovh](https://sqlforge.dengshu.ovh)**
 
-## Features
+## What it does
 
-- **Format** — Pretty-print messy SQL into readable, indented code
-- **Transpile** — Convert SQL between 31+ database dialects (MySQL ↔ PostgreSQL ↔ Spark ↔ BigQuery ↔ ...)
-- **Lineage** — Automatically trace column-level data origins across CTEs, subqueries, and JOINs
-- **AST Viewer** — Inspect the abstract syntax tree of any SQL query
-- **Diff** — Semantic comparison between input and output SQL
+- **Format**: pretty-prints a whole script, statement by statement, keeping your function names (Hive's `NVL` stays `NVL`).
+- **Convert**: rewrites the script for another dialect, lists the functions it spelled differently, and warns when sqlglot left one of its own internal names (such as `TS_OR_DS_ADD`) in the output.
+- **Errors in place**: a parse error is shown with its line and column, and the line is marked in the editor.
+- **Analysis**: syntax tree, where each output column comes from (through CTEs, subqueries, joins and unions), and what changed structurally between input and result.
+- **Remembers and shares**: the last input and dialects stay on the device; a share link carries the SQL in the URL fragment, which never reaches the server.
 
-## Architecture
+## API
 
-```
-Frontend (Vite + TypeScript + CodeMirror 6)
-    │
-    ▼  HTTP REST
-Backend (FastAPI + sqlglot)
-    ├── /api/format
-    ├── /api/transpile
-    ├── /api/parse
-    ├── /api/diff
-    └── /api/lineage
-```
+Everything the page does is a JSON call; interactive docs are at `/api/docs`.
 
-Single-container deployment: FastAPI serves both the API and the built frontend static files.
+| Endpoint | Body | Returns |
+|---|---|---|
+| `POST /api/format` | `sql`, `dialect`, `indent` | `formatted` |
+| `POST /api/transpile` | `sql`, `source_dialect`, `target_dialect`, `pretty`, `identify` | `result`, `warnings`, `rewritten_functions`, `untranslated_functions` |
+| `POST /api/analyze` | `sql`, `dialect`, optional `target_sql` + `target_dialect` | `ast`, `tables`, `columns`, `lineage`, `diff`, `errors` |
+| `POST /api/parse`, `/api/lineage`, `/api/diff` | the single parts of analyze | |
+| `GET /api/dialects` | | the dialect names |
 
-## Quick Start
+An empty dialect means sqlglot's generic SQL. SQL is limited to 100,000 characters per request, and each client to 30 requests at once, refilled at one per second (HTTP 429 with `Retry-After` past that). Errors come back as `{"detail": "...", "errors": [{"line", "col", "description"}]}`.
 
-### Development
+## Development
 
 ```bash
-# Backend
+# Backend on :8000
 cd backend
 uv sync
 uv run uvicorn sqlforge.main:app --reload --port 8000
+uv run pytest
 
-# Frontend (separate terminal)
+# Frontend on :5173, proxying /api to :8000
 cd frontend
 npm install
 npm run dev
+npm test
 ```
 
-The Vite dev server proxies `/api` requests to `localhost:8000`.
+## Deployment
 
-### Docker
+One container serves the API and the built page:
 
 ```bash
-docker compose build
-docker compose up -d
+docker compose up -d --build
 ```
 
-Container binds to `127.0.0.1:7082`. Configure your reverse proxy to point your domain to this port.
+It listens on `127.0.0.1:7082` behind a reverse proxy. Settings (environment):
 
-## Tech Stack
+| Variable | Meaning |
+|---|---|
+| `CLIENT_IP_HEADER` | Header carrying the visitor's address, set by the proxy (e.g. `X-Real-IP`); the rate limit keys on it. Unset: the connecting address. |
+| `ANALYTICS_ORIGINS` | Extra origins the page's Content-Security-Policy allows for scripts and beacons. |
+| `RATE_PER_SECOND`, `RATE_BURST` | The API rate limit (default 1 and 30). |
+| `VITE_UMAMI_WEBSITE_ID` | Build argument for the Umami analytics snippet. |
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Vite, TypeScript, CodeMirror 6 |
-| Backend | Python 3.13, FastAPI, sqlglot |
-| Deployment | Docker, single-container |
+## Stack
 
-## Supported Dialects
-
-BigQuery · ClickHouse · Databricks · Doris · Drill · DuckDB · Hive · Materialize · MySQL · Oracle · PostgreSQL · Presto · Redshift · Snowflake · Spark · SQLite · StarRocks · Tableau · Teradata · Trino · T-SQL — and more.
+Python 3.13, FastAPI, sqlglot · TypeScript, Vite, CodeMirror 6 · Quiet UI styles.
 
 ## License
 

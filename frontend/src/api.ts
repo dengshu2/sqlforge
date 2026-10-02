@@ -1,103 +1,94 @@
-/** API client for the SQLForge backend. */
+/** Client for the SQLForge API. Failures become ApiError with a message that
+ * can be shown as is, plus the parse position when the SQL itself was wrong. */
 
-const BASE = '/api';
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => null);
-    const msg = data?.detail ?? `Request failed (${res.status})`;
-    throw new Error(msg);
-  }
-
-  return res.json();
+export interface ErrorPosition {
+  line: number | null;
+  col: number | null;
+  description: string;
 }
 
-export interface FormatResult {
-  formatted: string;
-  dialect: string;
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly positions: ErrorPosition[] = [],
+  ) {
+    super(message);
+  }
+}
+
+async function post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err;
+    throw new ApiError('网络连接失败，请稍后重试', 0);
+  }
+  if (res.ok) return res.json();
+  const data = await res.json().catch(() => null);
+  if (res.status === 429) throw new ApiError('请求太频繁，请稍等几秒再试', 429);
+  if (res.status === 422 && data?.detail) throw new ApiError(String(data.detail), 422, data.errors ?? []);
+  throw new ApiError(`服务暂时不可用（${res.status}）`, res.status);
 }
 
 export interface TranspileResult {
   result: string;
-  source_dialect: string;
-  target_dialect: string;
   warnings: string[];
-}
-
-
-
-export interface ParseResult {
-  ast: ASTNode;
-  tables: string[];
-  columns: string[];
+  rewritten_functions: string[];
+  untranslated_functions: string[];
 }
 
 export interface ASTNode {
   type: string;
   sql: string;
-  key?: string;
-  children?: ASTNode[];
+  key?: string | null;
+  truncated?: boolean | null;
+  children?: ASTNode[] | null;
 }
 
-export interface DiffResult {
-  changes: { type: string; sql: string }[];
-  summary: Record<string, number>;
-}
-
-export function formatSQL(sql: string, dialect: string, indent = 2): Promise<FormatResult> {
-  return post('/format', { sql, dialect, indent });
-}
-
-export function transpileSQL(
-  sql: string,
-  sourceDialect: string,
-  targetDialect: string,
-  pretty = true,
-): Promise<TranspileResult> {
-  return post('/transpile', {
-    sql,
-    source_dialect: sourceDialect,
-    target_dialect: targetDialect,
-    pretty,
-  });
-}
-
-export function parseSQL(sql: string, dialect: string): Promise<ParseResult> {
-  return post('/parse', { sql, dialect });
-}
-
-export function diffSQL(sourceSql: string, targetSql: string, dialect: string): Promise<DiffResult> {
-  return post('/diff', { source_sql: sourceSql, target_sql: targetSql, dialect });
-}
-
-export interface LineageMapping {
+export interface LineageRow {
   output: string;
   expression: string;
   source_table: string | null;
   source_column: string | null;
+  statement?: number | null;
 }
 
-export interface LineageResult {
-  mappings: LineageMapping[];
+export interface DiffChange {
+  type: 'remove' | 'insert' | 'move' | 'update';
+  sql: string;
+  target?: string | null;
 }
 
-export function lineageSQL(
+export interface Analysis {
+  ast: ASTNode | null;
+  tables: string[];
+  columns: string[];
+  lineage: LineageRow[];
+  diff: { changes: DiffChange[]; summary: Record<string, number> } | null;
+  errors: Partial<Record<'ast' | 'lineage' | 'diff', string>>;
+}
+
+export const formatSQL = (sql: string, dialect: string, signal?: AbortSignal) =>
+  post<{ formatted: string }>('/format', { sql, dialect }, signal);
+
+export const transpileSQL = (sql: string, from: string, to: string, signal?: AbortSignal) =>
+  post<TranspileResult>('/transpile', { sql, source_dialect: from, target_dialect: to }, signal);
+
+export const analyzeSQL = (
   sql: string,
   dialect: string,
-  schema?: Record<string, Record<string, string>>,
-): Promise<LineageResult> {
-  return post('/lineage', { sql, dialect, schema });
-}
-
-export async function fetchDialects(): Promise<string[]> {
-  const res = await fetch(`${BASE}/dialects`);
-  if (!res.ok) throw new Error('Failed to load dialects');
-  const data = await res.json();
-  return data.dialects;
-}
+  target?: { sql: string; dialect: string },
+  signal?: AbortSignal,
+) =>
+  post<Analysis>(
+    '/analyze',
+    { sql, dialect, target_sql: target?.sql ?? null, target_dialect: target?.dialect ?? null },
+    signal,
+  );
